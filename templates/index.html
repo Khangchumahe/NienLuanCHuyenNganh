@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURA FASHION | Đồ Án Niên Luận Kỹ Thuật Phần Mềm - RAG AI & Thanh Toán Ảo</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- HEADER / NAVBAR -->
+  <header class="header">
+    <div class="container nav-bar">
+      <a href="/" class="logo-wrapper">
+        <div class="logo-icon"><i class="fa-solid fa-shirt"></i></div>
+        <div class="logo-text">
+          <h1>AURA FASHION</h1>
+          <span class="logo-badge">RAG AI & SQL ACID</span>
+        </div>
+      </a>
+
+      <!-- Search Bar -->
+      <div class="search-bar-container">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input type="text" id="searchInput" class="search-input" placeholder="Tìm kiếm áo sơ mi, đầm lụa, blazer, size...">
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="nav-actions">
+        <button id="btnOpenSqlAudit" class="btn-nav-action btn-sql-audit" title="Kiểm tra CSDL & Triggers">
+          <i class="fa-solid fa-database"></i>
+          <span>SQL & Triggers</span>
+        </button>
+        
+        <button id="btnOpenCart" class="btn-nav-action btn-cart">
+          <i class="fa-solid fa-bag-shopping"></i>
+          <span>Giỏ hàng</span>
+          <span id="cartBadge" class="cart-count">0</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO SECTION -->
+  <section class="hero-section">
+    <div class="container hero-grid">
+      <div class="hero-content">
+        <h2>Thời Trang Cao Cấp &<br><span>Trợ Lý Tư Vấn RAG AI</span></h2>
+        <p>Hệ thống thương mại điện tử ứng dụng kỹ thuật Retrieval-Augmented Generation (RAG) giúp tư vấn chuẩn size theo chiều cao, cân nặng và phong cách. Tích hợp cổng thanh toán ảo và CSDL SQL tối ưu với Triggers & Stored Procedures.</p>
+        
+        <div class="hero-tags">
+          <div class="hero-tag"><i class="fa-solid fa-robot"></i> RAG AI Pipeline</div>
+          <div class="hero-tag"><i class="fa-solid fa-credit-card"></i> Virtual Payment Mock</div>
+          <div class="hero-tag"><i class="fa-solid fa-bolt"></i> SQL Triggers & Indexes</div>
+          <div class="hero-tag"><i class="fa-solid fa-arrows-rotate"></i> ACID Transaction Checkout</div>
+        </div>
+      </div>
+
+      <!-- RAG Workflow Visualizer Card -->
+      <div class="hero-preview-card">
+        <div class="hero-card-header">
+          <div class="hero-card-title"><i class="fa-solid fa-network-wired"></i> Kiến Trúc RAG Hoạt Động</div>
+          <button id="btnSyncRag" class="btn-inspect-rag" title="Đồng bộ sản phẩm SQL vào RAG"><i class="fa-solid fa-arrows-rotate"></i> Đồng bộ Vector</button>
+        </div>
+        <div class="rag-flow-steps">
+          <div class="rag-flow-step">
+            <span class="step-num">1</span>
+            <div><strong>SQL Knowledge Base:</strong> Trích xuất bảng size, chất liệu và tồn kho thành Documents.</div>
+          </div>
+          <div class="rag-flow-step">
+            <span class="step-num">2</span>
+            <div><strong>Vector Cosine Retrieval:</strong> So khớp câu hỏi khách (VD: 1m70 65kg) với kho hàng.</div>
+          </div>
+          <div class="rag-flow-step">
+            <span class="step-num">3</span>
+            <div><strong>Context Augmentation:</strong> Đóng gói sản phẩm phù hợp vào bối cảnh Prompt.</div>
+          </div>
+          <div class="rag-flow-step">
+            <span class="step-num">4</span>
+            <div><strong>LLM Generation:</strong> Sinh câu tư vấn chuẩn xác 100%, không bị ảo giác (hallucination).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CATEGORY TABS -->
+  <section class="category-section">
+    <div class="container">
+      <div class="category-tabs" id="categoryTabs">
+        <button class="tab-btn active" data-cat="">Tất cả sản phẩm</button>
+        <button class="tab-btn" data-cat="1">Áo Nam</button>
+        <button class="tab-btn" data-cat="2">Quần Nam</button>
+        <button class="tab-btn" data-cat="3">Áo Khoác</button>
+        <button class="tab-btn" data-cat="4">Đầm & Váy Nữ</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRODUCTS SECTION -->
+  <section class="product-section">
+    <div class="container">
+      <div class="section-header">
+        <h3 id="productSectionTitle">Bộ Sưu Tập Mới Nhất</h3>
+        <span id="productCountText" style="color: var(--slate-500); font-size: 14px;">Đang tải sản phẩm...</span>
+      </div>
+
+      <!-- Product Grid Container -->
+      <div class="product-grid" id="productGrid">
+        <!-- Javascript sẽ render động các sản phẩm vào đây -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================== -->
+  <!-- MODAL 1: CHI TIẾT SẢN PHẨM & CHỌN SIZE/MÀU              -->
+  <!-- ======================================================== -->
+  <div class="modal-overlay" id="productDetailModal">
+    <div class="modal-card" style="max-width: 800px;">
+      <div class="modal-header">
+        <h3 id="modalProdTitle">Chi Tiết Sản Phẩm</h3>
+        <button class="btn-close-modal" onclick="closeModal('productDetailModal')">&times;</button>
+      </div>
+      <div class="modal-body" style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 24px;">
+        <div>
+          <img id="modalProdImg" src="" alt="" style="width: 100%; height: 350px; object-fit: cover; border-radius: 12px;">
+        </div>
+        <div>
+          <div id="modalProdCat" style="font-size: 12px; font-weight: 700; color: var(--primary); text-transform: uppercase;"></div>
+          <h2 id="modalProdName" style="font-size: 20px; font-weight: 800; margin: 6px 0 10px;"></h2>
+          
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px;">
+            <span id="modalProdPrice" style="font-size: 22px; font-weight: 800; color: var(--primary);"></span>
+            <span id="modalProdOldPrice" style="font-size: 14px; color: var(--slate-400); text-decoration: line-through;"></span>
+          </div>
+
+          <div style="background: var(--slate-50); border: 1px solid var(--slate-200); padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 16px;">
+            <strong><i class="fa-solid fa-ruler-combined"></i> Hướng Dẫn Chọn Size:</strong>
+            <p id="modalProdSizeGuide" style="color: var(--slate-600); margin-top: 4px;"></p>
+          </div>
+
+          <!-- Chọn biến thể -->
+          <div style="margin-bottom: 16px;">
+            <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 6px;">Chọn Biến Thể (Màu sắc & Kích thước):</label>
+            <select id="modalVariantSelect" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--slate-300); font-size: 14px; outline: none;">
+              <!-- Option variants render here -->
+            </select>
+            <div id="modalVariantStockInfo" style="font-size: 12px; color: var(--success); font-weight: 600; margin-top: 4px;"></div>
+          </div>
+
+          <div style="display: flex; gap: 10px; align-items: center; margin-top: 20px;">
+            <input type="number" id="modalQuantity" value="1" min="1" max="10" style="width: 70px; padding: 10px; border-radius: 8px; border: 1px solid var(--slate-300); text-align: center; font-weight: 700;">
+            <button id="btnAddToCartModal" style="flex: 1; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer;">
+              <i class="fa-solid fa-cart-plus"></i> Thêm Vào Giỏ Hàng
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL 2: GIỎ HÀNG & FORM ĐẶT HÀNG                       -->
+  <!-- ======================================================== -->
+  <div class="modal-overlay" id="cartModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-bag-shopping"></i> Giỏ Hàng Mua Sắm</h3>
+        <button class="btn-close-modal" onclick="closeModal('cartModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="cartItemsList">
+          <!-- Render danh sách mặt hàng -->
+        </div>
+
+        <div class="cart-total-box">
+          <span>Tổng số tiền thanh toán:</span>
+          <strong id="cartTotalPrice">0 VNĐ</strong>
+        </div>
+
+        <!-- Form Khách Hàng -->
+        <div style="border-top: 1px solid var(--slate-200); padding-top: 16px; margin-top: 16px;">
+          <h4 style="font-size: 15px; margin-bottom: 12px;"><i class="fa-solid fa-user-check"></i> Thông Tin Giao Hàng & Đặt Hàng</h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+            <input type="text" id="custName" placeholder="Họ và tên người nhận" value="Nguyễn Văn A" style="padding: 10px; border-radius: 6px; border: 1px solid var(--slate-300);">
+            <input type="text" id="custPhone" placeholder="Số điện thoại" value="0912345678" style="padding: 10px; border-radius: 6px; border: 1px solid var(--slate-300);">
+          </div>
+          <input type="text" id="custAddress" placeholder="Địa chỉ giao hàng" value="Đại học Cần Thơ, Khu II, Đường 3/2, Q. Ninh Kiều, Cần Thơ" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--slate-300); margin-bottom: 16px;">
+
+          <button id="btnProceedCheckout" style="width: 100%; padding: 14px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: 800; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <i class="fa-solid fa-credit-card"></i> Tiến Hành Thanh Toán Ảo (Virtual Sandbox)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL 3: CỔNG THANH TOÁN ẢO (VIRTUAL SANDBOX SIMULATOR)  -->
+  <!-- ======================================================== -->
+  <div class="modal-overlay" id="paymentModal">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header" style="background: #0284c7; color: white;">
+        <h3 style="color: white;"><i class="fa-solid fa-shield-halved"></i> Cổng Thanh Toán Ảo (Sandbox Test)</h3>
+        <button class="btn-close-modal" onclick="closeModal('paymentModal')" style="color: white;">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="payment-mock-card">
+          <div class="payment-mock-header">
+            <strong>MÔ PHỎNG VNPAY / MOMO GATEWAY</strong>
+            <span style="font-size: 11px; background: #0284c7; color: white; padding: 2px 6px; border-radius: 4px;">Môi trường Test</span>
+          </div>
+          <div class="payment-row">
+            <span>Mã Đơn Hàng:</span>
+            <strong id="mockOrderCode">ORD-20261010001</strong>
+          </div>
+          <div class="payment-row">
+            <span>Mã Giao Dịch (Transaction):</span>
+            <strong id="mockTransCode">TRX-20261010-01</strong>
+          </div>
+          <div class="payment-row">
+            <span>Số Tiền Cần Thanh Toán:</span>
+            <strong id="mockAmount" style="color: #dc2626; font-size: 16px;">0 VNĐ</strong>
+          </div>
+          <div class="payment-row" style="word-break: break-all;">
+            <span>Chữ Ký Checksum (HMAC-SHA256):</span>
+            <span id="mockChecksum" style="font-family: monospace; font-size: 11px; color: var(--slate-600);"></span>
+          </div>
+        </div>
+
+        <p style="font-size: 13px; color: var(--slate-600); margin: 12px 0;">
+          💡 <em>Đây là môi trường thanh toán giả lập phục vụ chấm đồ án Niên luận chuyên ngành. Bạn có thể chọn kịch bản thanh toán thành công (kích hoạt Stored Procedure & Trigger trừ kho) hoặc hủy giao dịch.</em>
+        </p>
+
+        <div class="payment-actions">
+          <button id="btnMockSuccess" class="btn-pay-success">
+            <i class="fa-solid fa-circle-check"></i> Thanh Toán Thành Công
+          </button>
+          <button id="btnMockCancel" class="btn-pay-cancel">
+            <i class="fa-solid fa-circle-xmark"></i> Hủy Giao Dịch
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL 4: RAG TRACE INSPECTOR (GIẢI THÍCH LUỒNG RAG)      -->
+  <!-- ======================================================== -->
+  <div class="modal-overlay" id="ragTraceModal">
+    <div class="modal-card">
+      <div class="modal-header" style="background: var(--slate-900); color: white;">
+        <h3 style="color: #38bdf8;"><i class="fa-solid fa-magnifying-glass-chart"></i> RAG Inspector (Giải Thích Luồng AI)</h3>
+        <button class="btn-close-modal" onclick="closeModal('ragTraceModal')" style="color: white;">&times;</button>
+      </div>
+      <div class="modal-body" id="ragTraceContent">
+        <!-- Render luồng RAG: Token, Retrieval, Prompt, Generation -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL 5: SQL DATABASE, TRIGGERS & AUDIT INSPECTOR       -->
+  <!-- ======================================================== -->
+  <div class="modal-overlay" id="sqlAuditModal">
+    <div class="modal-card" style="max-width: 800px;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-database"></i> Kiểm Tra Cơ Sở Dữ Liệu SQL & Triggers</h3>
+        <button class="btn-close-modal" onclick="closeModal('sqlAuditModal')">&times;</button>
+      </div>
+      <div class="modal-body" id="sqlAuditBody">
+        <!-- Render thống kê CSDL và nhật ký trigger -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- FLOATING CHATBOT WIDGET (RAG POWERED)                    -->
+  <!-- ======================================================== -->
+  <button id="chatbotLauncher" class="chatbot-launcher">
+    <i class="fa-solid fa-wand-magic-sparkles"></i>
+    <span>Tư Vấn Chọn Size (RAG AI)</span>
+  </button>
+
+  <div id="chatbotWindow" class="chatbot-window">
+    <div class="chat-header">
+      <div class="chat-header-info">
+        <div class="ai-avatar"><i class="fa-solid fa-robot"></i></div>
+        <div class="chat-header-text">
+          <h4>Aura Fashion AI</h4>
+          <span class="ai-status"><span class="status-dot"></span> Sẵn sàng (RAG Connected)</span>
+        </div>
+      </div>
+      <div class="chat-header-actions">
+        <button id="btnOpenRagTraceHeader" class="btn-inspect-rag" title="Xem luồng RAG của câu trả lời gần nhất">
+          <i class="fa-solid fa-eye"></i> RAG Trace
+        </button>
+        <button id="btnCloseChat" class="btn-close-chat">&times;</button>
+      </div>
+    </div>
+
+    <!-- Quick Prompt Chips -->
+    <div class="quick-prompts">
+      <div class="quick-prompt-chip" onclick="sendQuickPrompt('Tư vấn chọn size áo sơ mi nam cho người cao 1m70 nặng 65kg')">
+        👔 Áo sơ mi 1m70 65kg
+      </div>
+      <div class="quick-prompt-chip" onclick="sendQuickPrompt('Tôi muốn tìm áo khoác gió chống nước đi phượt')">
+        🧥 Áo khoác chống nước
+      </div>
+      <div class="quick-prompt-chip" onclick="sendQuickPrompt('Tìm đầm nữ dự tiệc cưới sang trọng hack dáng')">
+        👗 Đầm lụa dự tiệc cưới
+      </div>
+    </div>
+
+    <!-- Message Area -->
+    <div id="chatMessages" class="chat-messages">
+      <div class="chat-bubble bubble-bot">
+        Xin chào! Mình là trợ lý AI thông minh của AURA FASHION. Hãy nhập chiều cao, cân nặng hoặc phong cách trang phục bạn đang tìm kiếm để mình tra cứu kho hàng và tư vấn chuẩn xác nhất nhé! ✨
+      </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="chat-input-area">
+      <input type="text" id="chatInput" class="chat-input" placeholder="Hỏi size, chiều cao, cân nặng, chất liệu...">
+      <button id="btnSendChat" class="btn-send-chat">
+        <i class="fa-solid fa-paper-plane"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Scripts -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
