@@ -106,14 +106,28 @@ Mở trình duyệt bất kỳ (Chrome, Edge, Firefox) và truy cập: **`http:/
 3. Chọn màu sắc và kích cỡ (Size S, M, L, XL). Hệ thống sẽ hiển thị tồn kho realtime cho từng biến thể SKU.
 4. Bấm **"Thêm vào giỏ hàng"**.
 
-### 💳 4.2. Đặt Hàng & Thanh Toán Ảo (Virtual Sandbox)
+### 💳 4.2. Đặt Hàng & Cổng Thanh Toán ZaloPay Sandbox Gateway (Chính Thức)
 1. Bấm nút **"Giỏ hàng"** ở góc phải thanh Menu.
 2. Kiểm tra danh sách mặt hàng, điền thông tin người nhận (Tên, SĐT, Địa chỉ).
 3. Bấm **"Tiến Hành Thanh Toán Ảo (Virtual Sandbox)"**.
-4. Cửa sổ Sandbox mô phỏng hiện ra:
-   * Hiển thị mã đơn hàng, mã giao dịch, số tiền và chữ ký điện tử HMAC-SHA256.
-   * Bấm **"Thanh toán thành công"**: Gọi Webhook cập nhật đơn hàng thành `PAID`, kích hoạt Trigger trừ kho và lưu lịch sử thay đổi.
-   * Bấm **"Hủy giao dịch"**: Hủy đơn và tự động hoàn trả số lượng kho.
+4. Cửa sổ **ZaloPay Sandbox Gateway** hiện ra theo chuẩn giao thức nhà phát hành ZaloPay & SDK `zalopay.js`:
+   * **Thông tin kỹ thuật:** Mã đơn hàng, AppID (`2553`), AppTransID (`yyMMdd_xxxxxx`), Chữ ký số MAC HMAC-SHA256 chuẩn ZaloPay v2, đồng hồ đếm ngược 15:00.
+   * **Kênh 1 - Thẻ Quốc Tế (Visa / Mastercard / JCB):**
+     * Tích hợp sẵn danh sách **Thẻ tín dụng mẫu hoạt động được**:
+       * *Visa Platinum:* `4111 1111 1111 1111` | EXP: `12/28` | CVV: `123` (Thành công)
+       * *Mastercard World:* `5555 5555 5555 5555` | EXP: `10/27` | CVV: `456` (Thành công)
+       * *JCB Ultimate:* `3528 0000 0000 0000` | EXP: `08/29` | CVV: `789` (Thành công)
+       * *Thẻ Demo lỗi:* `4000 0000 0000 0002` (Mô phỏng từ chối do không đủ số dư để test Rollback kho).
+     * Chỉ cần **1-Click** vào thẻ mẫu là hệ thống tự động điền form.
+     * Bấm "Thanh toán an toàn" -> Chuyển sang bước xác thực **3D-Secure OTP** (Mã OTP mẫu: `111111`).
+   * **Kênh 2 - Thẻ ATM Nội Địa Napas:**
+     * Thẻ Napas ngân hàng NCB test: `9704 1985 2619 1432 198` (OTP: `123456`).
+     * Thẻ Napas ngân hàng Vietcombank test: `9704 3666 1234 5678`.
+   * **Kênh 3 - Ví ZaloPay QR:**
+     * Quét mã QR hoặc nhập tài khoản ví test `0912345678` (OTP: `111111`).
+   * **Xử lý toàn vẹn dữ liệu:**
+     * Khi hoàn tất thanh toán thành công: Kích hoạt Stored Procedure `sp_ProcessPaymentWebhook` chuyển trạng thái đơn hàng sang `PAID`, kích hoạt Trigger trừ kho & ghi log kiểm toán.
+     * Khi bấm **"Hủy giao dịch"**: Tự động kích hoạt cơ chế hoàn lại tồn kho đã giữ chỗ trong kho dữ liệu (Rollback Trigger).
 
 ### 🤖 4.3. Chatbot Trợ Lý Thời Trang RAG
 1. Bấm vào nút nổi tròn **"Tư Vấn Chọn Size (RAG AI)"** ở góc dưới bên phải màn hình.

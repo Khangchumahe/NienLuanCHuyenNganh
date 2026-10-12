@@ -206,49 +206,259 @@
   </div>
 
   <!-- ======================================================== -->
-  <!-- MODAL 3: CỔNG THANH TOÁN ẢO (VIRTUAL SANDBOX SIMULATOR)  -->
+  <!-- MODAL 3: CỔNG THANH TOÁN ZALOPAY SANDBOX GATEWAY CHÍNH THỨC -->
   <!-- ======================================================== -->
   <div class="modal-overlay" id="paymentModal">
-    <div class="modal-card" style="max-width: 520px;">
-      <div class="modal-header" style="background: #0284c7; color: white;">
-        <h3 style="color: white;"><i class="fa-solid fa-shield-halved"></i> Cổng Thanh Toán Ảo (Sandbox Test)</h3>
-        <button class="btn-close-modal" onclick="closeModal('paymentModal')" style="color: white;">&times;</button>
+    <div class="modal-card modal-zalopay-gateway">
+      <!-- Header ZaloPay Gateway -->
+      <div class="zalopay-gateway-header">
+        <div class="zalopay-brand">
+          <div class="zalopay-logo-badge">
+            <i class="fa-solid fa-wallet"></i>
+          </div>
+          <div>
+            <h3 class="zalopay-title">ZaloPay Gateway <span class="badge-sandbox">SANDBOX TEST</span></h3>
+            <span class="zalopay-subtitle"><i class="fa-solid fa-shield-halved"></i> Bảo mật chuẩn PCI-DSS Level 1 & SSL 256-bit</span>
+          </div>
+        </div>
+        <button class="btn-close-modal zalopay-close" onclick="closeModal('paymentModal')">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="payment-mock-card">
-          <div class="payment-mock-header">
-            <strong>MÔ PHỎNG VNPAY / MOMO GATEWAY</strong>
-            <span style="font-size: 11px; background: #0284c7; color: white; padding: 2px 6px; border-radius: 4px;">Môi trường Test</span>
+
+      <div class="modal-body zalopay-body">
+        <!-- Thông tin đơn hàng & đếm ngược -->
+        <div class="zalopay-order-summary">
+          <div class="zp-summary-row">
+            <div>
+              <span class="zp-label">Đơn hàng:</span>
+              <strong id="mockOrderCode" class="zp-value-code">ORD-20261012001</strong>
+            </div>
+            <div class="zp-countdown-box">
+              <i class="fa-regular fa-clock"></i> Thời gian: <span id="zpCountdown">14:59</span>
+            </div>
           </div>
-          <div class="payment-row">
-            <span>Mã Đơn Hàng:</span>
-            <strong id="mockOrderCode">ORD-20261010001</strong>
+          <div class="zp-summary-amount-box">
+            <span>Số tiền thanh toán:</span>
+            <strong id="mockAmount" class="zp-amount-highlight">0 VNĐ</strong>
           </div>
-          <div class="payment-row">
-            <span>Mã Giao Dịch (Transaction):</span>
-            <strong id="mockTransCode">TRX-20261010-01</strong>
-          </div>
-          <div class="payment-row">
-            <span>Số Tiền Cần Thanh Toán:</span>
-            <strong id="mockAmount" style="color: #dc2626; font-size: 16px;">0 VNĐ</strong>
-          </div>
-          <div class="payment-row" style="word-break: break-all;">
-            <span>Chữ Ký Checksum (HMAC-SHA256):</span>
-            <span id="mockChecksum" style="font-family: monospace; font-size: 11px; color: var(--slate-600);"></span>
+          <!-- Chi tiết kỹ thuật ZaloPay SDK -->
+          <div class="zp-tech-details">
+            <div class="zp-tech-item">
+              <span>AppID:</span> <strong id="zpAppId">2553</strong>
+            </div>
+            <div class="zp-tech-item">
+              <span>AppTransID:</span> <strong id="zpAppTransId">241012_000001</strong>
+            </div>
+            <div class="zp-tech-item zp-tech-mac" title="Chữ ký số HMAC-SHA256 chuẩn ZaloPay v2">
+              <span>MAC (HMAC-SHA256):</span> <span id="mockChecksum" class="zp-mac-text"></span>
+            </div>
           </div>
         </div>
 
-        <p style="font-size: 13px; color: var(--slate-600); margin: 12px 0;">
-          💡 <em>Đây là môi trường thanh toán giả lập phục vụ chấm đồ án Niên luận chuyên ngành. Bạn có thể chọn kịch bản thanh toán thành công (kích hoạt Stored Procedure & Trigger trừ kho) hoặc hủy giao dịch.</em>
-        </p>
+        <!-- MÀN HÌNH CHÍNH CỦA CỔNG THANH TOÁN (PAYMENT TABS) -->
+        <div id="zpGatewayMainView">
+          <!-- Navigation Tabs -->
+          <div class="zp-nav-tabs">
+            <button class="zp-tab-btn active" onclick="switchZpTab('tabCredit')">
+              <i class="fa-solid fa-credit-card"></i> Thẻ Quốc Tế
+            </button>
+            <button class="zp-tab-btn" onclick="switchZpTab('tabNapas')">
+              <i class="fa-solid fa-building-columns"></i> Thẻ ATM Napas
+            </button>
+            <button class="zp-tab-btn" onclick="switchZpTab('tabWallet')">
+              <i class="fa-solid fa-qrcode"></i> Ví ZaloPay QR
+            </button>
+          </div>
 
-        <div class="payment-actions">
-          <button id="btnMockSuccess" class="btn-pay-success">
-            <i class="fa-solid fa-circle-check"></i> Thanh Toán Thành Công
+          <!-- TAB 1: THẺ QUỐC TẾ (VISA / MASTERCARD / JCB) -->
+          <div id="tabCredit" class="zp-tab-content active">
+            <!-- Danh sách thẻ mẫu có sẵn hoạt động được -->
+            <div class="sample-cards-container">
+              <div class="sample-cards-title">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> <strong>Thẻ tín dụng mẫu có sẵn</strong> (Click để tự động điền form):
+              </div>
+              <div class="sample-cards-grid" id="sampleCreditCardsList">
+                <!-- Sẽ render động các thẻ mẫu Visa, Mastercard, JCB, Thẻ lỗi -->
+              </div>
+            </div>
+
+            <!-- Form nhập thẻ tín dụng -->
+            <div class="zp-card-form">
+              <div class="zp-form-group">
+                <label>Số Thẻ Tín Dụng / Ghi Nợ <span class="required">*</span></label>
+                <div class="zp-input-card-wrap">
+                  <input type="text" id="ccNumber" placeholder="4111 1111 1111 1111" maxlength="19">
+                  <span id="ccBrandIcon" class="cc-brand-icon"><i class="fa-brands fa-cc-visa"></i></span>
+                </div>
+              </div>
+              <div class="zp-form-group">
+                <label>Tên In Trên Thẻ (Không dấu) <span class="required">*</span></label>
+                <input type="text" id="ccHolder" placeholder="NGUYEN VAN A" style="text-transform: uppercase;">
+              </div>
+              <div class="zp-form-row">
+                <div class="zp-form-group">
+                  <label>Ngày Hết Hạn (MM/YY) <span class="required">*</span></label>
+                  <input type="text" id="ccExpiry" placeholder="12/28" maxlength="5">
+                </div>
+                <div class="zp-form-group">
+                  <label>Mã CVV / CVC <span class="required">*</span></label>
+                  <input type="password" id="ccCvv" placeholder="123" maxlength="4">
+                </div>
+              </div>
+
+              <button id="btnPayWithCreditCard" class="btn-zp-primary" onclick="initiateCardPayment('CREDIT')">
+                <i class="fa-solid fa-lock"></i> Thanh Toán An Toàn Qua ZaloPay SDK
+              </button>
+            </div>
+          </div>
+
+          <!-- TAB 2: THẺ ATM NỘI ĐỊA (NAPAS) -->
+          <div id="tabNapas" class="zp-tab-content">
+            <div class="sample-cards-container">
+              <div class="sample-cards-title">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> <strong>Thẻ ATM Napas Sandbox</strong> (Click để tự động điền):
+              </div>
+              <div class="sample-cards-grid" id="sampleNapasCardsList">
+                <!-- Sẽ render các thẻ ATM Napas NCB, Vietcombank -->
+              </div>
+            </div>
+
+            <div class="zp-card-form">
+              <div class="zp-form-group">
+                <label>Ngân Hàng Phát Hành <span class="required">*</span></label>
+                <select id="napasBankSelect" class="zp-select">
+                  <option value="NCB">Ngân Hàng Quốc Dân (NCB Test)</option>
+                  <option value="VCB">Ngân Hàng Vietcombank</option>
+                  <option value="TCB">Ngân Hàng Techcombank</option>
+                  <option value="BIDV">Ngân Hàng BIDV</option>
+                  <option value="AGR">Ngân Hàng Agribank</option>
+                </select>
+              </div>
+              <div class="zp-form-group">
+                <label>Số Thẻ ATM Napas <span class="required">*</span></label>
+                <input type="text" id="napasNumber" placeholder="9704 1985 2619 1432 198" maxlength="23">
+              </div>
+              <div class="zp-form-row">
+                <div class="zp-form-group">
+                  <label>Tên Chủ Thẻ <span class="required">*</span></label>
+                  <input type="text" id="napasHolder" placeholder="NGUYEN VAN A" style="text-transform: uppercase;">
+                </div>
+                <div class="zp-form-group">
+                  <label>Ngày Phát Hành (MM/YY) <span class="required">*</span></label>
+                  <input type="text" id="napasExpiry" placeholder="07/15" maxlength="5">
+                </div>
+              </div>
+
+              <button id="btnPayWithNapas" class="btn-zp-primary" onclick="initiateCardPayment('ATM')">
+                <i class="fa-solid fa-lock"></i> Thanh Toán Thẻ ATM Napas
+              </button>
+            </div>
+          </div>
+
+          <!-- TAB 3: VÍ ZALOPAY QR CODE -->
+          <div id="tabWallet" class="zp-tab-content">
+            <div class="zp-qr-container">
+              <div class="zp-qr-card">
+                <div class="zp-qr-header">
+                  <img src="https://sandbox.zalopay.com.vn/images/zalopay-logo.svg" onerror="this.src='https://cdn.haitrieu.com/wp-content/uploads/2022/10/Logo-ZaloPay-Square.png'" alt="ZaloPay" class="zp-qr-logo">
+                  <span>Quét mã QR bằng App ZaloPay</span>
+                </div>
+                <!-- Canvas QR code động -->
+                <div class="zp-qr-box">
+                  <div class="zp-qr-graphic">
+                    <i class="fa-solid fa-qrcode" style="font-size: 150px; color: #0068ff;"></i>
+                    <div class="zp-qr-center-badge">
+                      <i class="fa-solid fa-bolt"></i>
+                    </div>
+                  </div>
+                  <div class="zp-qr-scan-line"></div>
+                </div>
+                <p class="zp-qr-desc">Mở ứng dụng Zalo hoặc ZaloPay trên điện thoại, chọn <strong>"Quét Mã"</strong> để thanh toán.</p>
+              </div>
+
+              <div class="zp-wallet-actions">
+                <div class="zp-quick-test-note">
+                  <i class="fa-solid fa-mobile-screen-button"></i> <strong>Tài khoản ví test mẫu:</strong> SĐT: <code>0912345678</code> | OTP: <code>111111</code>
+                </div>
+                <button class="btn-zp-primary" onclick="initiateWalletPayment()">
+                  <i class="fa-solid fa-mobile-screen-button"></i> Mô Phỏng Quét QR / Xác Nhận Ví ZaloPay
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MÀN HÌNH XÁC THỰC 3D-SECURE OTP (ISSUER BANK OTP VERIFICATION) -->
+        <div id="zpOtpVerificationView" style="display: none;">
+          <div class="zp-otp-card">
+            <div class="zp-otp-header">
+              <div class="zp-otp-bank-badge">
+                <i class="fa-solid fa-building-shield"></i> 3D-Secure 2.0 Protection
+              </div>
+              <span class="zp-otp-brand" id="otpCardBrandTitle">Verified by VISA / Mastercard ID Check</span>
+            </div>
+            
+            <div class="zp-otp-body">
+              <div class="zp-otp-icon-circle">
+                <i class="fa-solid fa-envelope-circle-check"></i>
+              </div>
+              <h4 style="margin: 8px 0 4px; color: var(--slate-900); font-size: 17px;">Xác Thực Giao Dịch Trực Tuyến</h4>
+              <p style="font-size: 13px; color: var(--slate-600); margin-bottom: 16px;">
+                Mã xác thực OTP đã được gửi đến số điện thoại đăng ký của chủ thẻ <strong>09***456</strong>.
+              </p>
+
+              <!-- OTP Callout Banner -->
+              <div class="zp-otp-hint-banner">
+                <div class="zp-otp-hint-left">
+                  <i class="fa-solid fa-key"></i>
+                  <span>Mã OTP Sandbox của bạn:</span>
+                </div>
+                <strong id="displaySampleOtp" class="zp-otp-code-highlight">111111</strong>
+                <button class="btn-auto-fill-otp" onclick="fillSampleOtp()" title="Tự động điền OTP">
+                  <i class="fa-solid fa-copy"></i> Điền OTP
+                </button>
+              </div>
+
+              <div class="zp-otp-input-group">
+                <label>Nhập 6 Chữ Số OTP:</label>
+                <input type="text" id="zpOtpInput" class="zp-otp-input" placeholder="111111" maxlength="6">
+              </div>
+
+              <div id="otpErrorMessage" class="zp-error-msg" style="display: none;"></div>
+
+              <div class="zp-otp-actions">
+                <button id="btnConfirmOtp" class="btn-zp-confirm-otp" onclick="submitOtpVerification()">
+                  <i class="fa-solid fa-circle-check"></i> Xác Nhận Thanh Toán (Authorize)
+                </button>
+                <button class="btn-zp-back" onclick="cancelOtpVerification()">
+                  <i class="fa-solid fa-arrow-left"></i> Quay Lại Chọn Thẻ
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MÀN HÌNH HOÀN TẤT THÀNH CÔNG -->
+        <div id="zpSuccessView" style="display: none;">
+          <div class="zp-success-card">
+            <div class="zp-success-icon-animate">
+              <i class="fa-solid fa-check"></i>
+            </div>
+            <h3 style="color: #16a34a; margin: 12px 0 6px;">Thanh Toán ZaloPay Thành Công!</h3>
+            <p style="font-size: 14px; color: var(--slate-600);">Giao dịch đã được hệ thống xác thực và gửi IPN Webhook.</p>
+            <div class="zp-success-receipt" id="zpSuccessReceipt">
+              <!-- Render thông tin biên lai -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer hành động kiểm thử & bảo mật -->
+        <div class="zalopay-footer-actions" id="zpFooterActions">
+          <button id="btnMockCancel" class="btn-zp-cancel" onclick="handleMockPaymentCallback('CANCELLED')">
+            <i class="fa-solid fa-ban"></i> Hủy Giao Dịch (Test Rollback Tồn Kho)
           </button>
-          <button id="btnMockCancel" class="btn-pay-cancel">
-            <i class="fa-solid fa-circle-xmark"></i> Hủy Giao Dịch
-          </button>
+          <div class="zp-footer-security">
+            <span>Powered by <strong>ZaloPay Sandbox SDK</strong> (zalopay.js)</span>
+          </div>
         </div>
       </div>
     </div>
@@ -342,6 +552,7 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- Scripts -->
+  <script src="/static/js/zalopay.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

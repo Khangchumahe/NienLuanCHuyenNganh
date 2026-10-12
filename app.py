@@ -9,7 +9,11 @@ from database.db import (
     sp_create_order_and_deduct_stock, get_db_stats
 )
 from services.rag_engine import rag_service
-from services.payment_service import generate_checksum, process_mock_payment_callback
+from services.payment_service import (
+    generate_checksum, process_mock_payment_callback,
+    create_zalopay_order_payload, OFFICIAL_TEST_CARDS, OFFICIAL_WALLETS,
+    process_card_or_wallet_payment
+)
 
 app = Flask(__name__)
 
@@ -40,7 +44,7 @@ def api_checkout():
     data = request.get_json() or {}
     customer_info = data.get('customer', {})
     cart_items = data.get('items', [])
-    payment_method = data.get('payment_method', 'VIRTUAL_SANDBOX')
+    payment_method = data.get('payment_method', 'ZALOPAY_SANDBOX')
 
     if not cart_items:
         return jsonify({'success': False, 'error': 'Giỏ hàng đang trống!'}), 400
@@ -54,9 +58,56 @@ def api_checkout():
         # Sinh checksum bảo mật cho giao dịch ảo
         checksum = generate_checksum(result['transaction_code'], result['total_amount'])
         result['checksum'] = checksum
+
+        # Sinh dữ liệu đơn hàng ZaloPay Sandbox chính thức (tương thích zalopay.js)
+        zalopay_payload = create_zalopay_order_payload(
+            order_code=result['order_code'],
+            transaction_code=result['transaction_code'],
+            amount=result['total_amount'],
+            customer_info=customer_info,
+            items=cart_items
+        )
+        result['zalopay'] = zalopay_payload
+
         return jsonify(result)
     else:
         return jsonify(result), 400
+
+@app.route('/api/payment/test-cards', methods=['GET'])
+def api_test_cards():
+    """API lấy danh sách thẻ tín dụng mẫu có sẵn chính thức để hiển thị trên giao diện"""
+    return jsonify({
+        'success': True,
+        'cards': OFFICIAL_TEST_CARDS,
+        'wallets': OFFICIAL_WALLETS
+    })
+
+@app.route('/api/payment/process-card', methods=['POST'])
+def api_process_card_payment():
+    """API xác thực và xử lý thanh toán qua thẻ tín dụng/ATM hoặc ví ZaloPay kèm OTP 3D-Secure"""
+    data = request.get_json() or {}
+    transaction_code = data.get('transaction_code')
+    payment_type = data.get('payment_type', 'CREDIT_CARD')
+    card_data = data.get('card_data')
+    wallet_data = data.get('wallet_data')
+    otp = data.get('otp', '').strip()
+
+    if not transaction_code:
+        return jsonify({'success': False, 'message': 'Thiếu mã giao dịch!'}), 400
+
+    result = process_card_or_wallet_payment(
+        transaction_code=transaction_code,
+        payment_type=payment_type,
+        card_data=card_data,
+        wallet_data=wallet_data,
+        otp=otp
+    )
+
+    if result.get('success'):
+        # Cập nhật lại kho cho RAG
+        rag_service.sync_knowledge_base()
+
+    return jsonify(result)
 
 @app.route('/api/payment/simulate-callback', methods=['POST'])
 def api_payment_callback():

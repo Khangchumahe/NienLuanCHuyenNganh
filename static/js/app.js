@@ -10,13 +10,23 @@ let currentSelectedProduct = null;
 let currentPendingPayment = null;
 let latestRagTrace = null;
 
+// Biến trạng thái ZaloPay Gateway & Thẻ test
+let officialTestCards = [];
+let officialTestWallets = [];
+let zpCountdownInterval = null;
+let currentPaymentType = 'CREDIT';
+let pendingPaymentData = null;
+let expectedOtp = '111111';
+
 // ========================================================
 // 1. KHỞI TẠO & TẢI DỮ LIỆU
 // ========================================================
 document.addEventListener('DOMContentLoaded', () => {
+  initZaloPayBridge();
   loadProducts();
   updateCartBadge();
   setupEventListeners();
+  loadOfficialTestCards();
 });
 
 function setupEventListeners() {
@@ -84,10 +94,11 @@ function setupEventListeners() {
     renderRagTraceModal(latestRagTrace);
   });
 
-  // Đặt hàng & Thanh toán ảo
-  document.getElementById('btnProceedCheckout').addEventListener('click', handleCheckout);
-  document.getElementById('btnMockSuccess').addEventListener('click', () => handleMockPaymentCallback('SUCCESS'));
-  document.getElementById('btnMockCancel').addEventListener('click', () => handleMockPaymentCallback('CANCELLED'));
+  // Đặt hàng & Thanh toán
+  const btnProceed = document.getElementById('btnProceedCheckout');
+  if (btnProceed) {
+    btnProceed.addEventListener('click', handleCheckout);
+  }
 
   // Nút Thêm vào giỏ từ Modal Chi tiết
   document.getElementById('btnAddToCartModal').addEventListener('click', handleAddToCartFromModal);
@@ -335,8 +346,180 @@ function removeCartItem(index) {
 }
 
 // ========================================================
-// 5. CHECKOUT & CỔNG THANH TOÁN ẢO (VIRTUAL SANDBOX)
+// 5. CỔNG THANH TOÁN ZALOPAY SANDBOX GATEWAY & THẺ TÍN DỤNG MẪU
 // ========================================================
+
+/**
+ * Khởi tạo ZaloPay JSBridge Adapter mô phỏng môi trường ZaloPay Client
+ * Tương thích trực tiếp với file zalopay.js (ZaloPay.payOrder, ZaloPay.showLoading,...)
+ */
+function initZaloPayBridge() {
+  if (!window.ZaloPayJSBridge) {
+    window.ZaloPayJSBridge = {
+      call: function(name, opt, cb) {
+        console.log("⚡ [ZaloPayJSBridge.call]", name, opt);
+        if (name === "payOrder") {
+          window._zpPayOrderCallback = cb;
+          openZaloPayGatewayModal(opt);
+        } else if (name === "showLoading") {
+          console.log("ZaloPay: Show Loading");
+        } else if (name === "hideLoading") {
+          console.log("ZaloPay: Hide Loading");
+        } else if (typeof cb === 'function') {
+          cb({ error: 1, errorCode: 1, errorMessage: "Success" });
+        }
+      }
+    };
+  }
+  // Kích hoạt sự kiện Ready cho zalopay.js
+  document.dispatchEvent(new Event("ZaloPayJSBridgeReady"));
+}
+
+/**
+ * Tải danh sách thẻ tín dụng mẫu có sẵn từ backend
+ */
+async function loadOfficialTestCards() {
+  try {
+    const res = await fetch('/api/payment/test-cards');
+    const data = await res.json();
+    if (data.success) {
+      officialTestCards = data.cards || [];
+      officialTestWallets = data.wallets || [];
+      renderSampleCards();
+    }
+  } catch (err) {
+    console.error("Lỗi tải thẻ test:", err);
+  }
+}
+
+/**
+ * Render các thẻ tín dụng mẫu và thẻ ATM lên giao diện ZaloPay Gateway
+ */
+function renderSampleCards() {
+  const creditContainer = document.getElementById('sampleCreditCardsList');
+  const napasContainer = document.getElementById('sampleNapasCardsList');
+
+  if (creditContainer) {
+    const creditCards = officialTestCards.filter(c => c.category === 'CREDIT');
+    creditContainer.innerHTML = creditCards.map(card => `
+      <div class="sample-card-item" id="sampleCard_${card.id}" onclick="selectSampleCreditCard('${card.id}')">
+        <div class="sample-card-top">
+          <span class="sample-card-brand-tag" style="color: ${card.badge_color};">
+            <i class="${card.icon}"></i> ${card.brand}
+          </span>
+          <span style="font-size: 10px; color: ${card.behavior === 'SUCCESS' ? '#16a34a' : '#dc2626'}; font-weight: 700;">
+            ${card.behavior === 'SUCCESS' ? '✔ Thành công' : '✖ Demo Lỗi'}
+          </span>
+        </div>
+        <div class="sample-card-num">${formatCardNumberMasked(card.card_number)}</div>
+        <div class="sample-card-meta">
+          <span>EXP: ${card.expiry_date}</span>
+          <span>CVV: ${card.cvv}</span>
+        </div>
+        <div class="sample-card-badge-action">
+          <i class="fa-solid fa-arrow-pointer"></i> Bấm để dùng thẻ này
+        </div>
+      </div>
+    `).join('');
+  }
+
+  if (napasContainer) {
+    const atmCards = officialTestCards.filter(c => c.category === 'ATM');
+    napasContainer.innerHTML = atmCards.map(card => `
+      <div class="sample-card-item" id="sampleCard_${card.id}" onclick="selectSampleNapasCard('${card.id}')">
+        <div class="sample-card-top">
+          <span class="sample-card-brand-tag" style="color: ${card.badge_color};">
+            <i class="${card.icon}"></i> ${card.issuer}
+          </span>
+          <span style="font-size: 10px; color: #16a34a; font-weight: 700;">✔ Thành công</span>
+        </div>
+        <div class="sample-card-num">${formatCardNumberMasked(card.card_number)}</div>
+        <div class="sample-card-meta">
+          <span>Chủ thẻ: ${card.card_holder}</span>
+          <span>Hạn: ${card.expiry_date}</span>
+        </div>
+        <div class="sample-card-badge-action">
+          <i class="fa-solid fa-arrow-pointer"></i> Bấm để dùng thẻ này
+        </div>
+      </div>
+    `).join('');
+  }
+}
+
+function formatCardNumberMasked(num) {
+  const clean = num.replace(/\s+/g, '');
+  if (clean.length >= 16) {
+    return `${clean.slice(0, 4)} •••• •••• ${clean.slice(-4)}`;
+  }
+  return num;
+}
+
+/**
+ * Tự động điền dữ liệu khi người dùng chọn thẻ tín dụng mẫu
+ */
+function selectSampleCreditCard(cardId) {
+  const card = officialTestCards.find(c => c.id === cardId);
+  if (!card) return;
+
+  document.querySelectorAll('#sampleCreditCardsList .sample-card-item').forEach(el => el.classList.remove('selected'));
+  const el = document.getElementById(`sampleCard_${cardId}`);
+  if (el) el.classList.add('selected');
+
+  document.getElementById('ccNumber').value = card.card_number;
+  document.getElementById('ccHolder').value = card.card_holder;
+  document.getElementById('ccExpiry').value = card.expiry_date;
+  document.getElementById('ccCvv').value = card.cvv;
+
+  // Cập nhật icon thương hiệu
+  const brandIconEl = document.getElementById('ccBrandIcon');
+  if (brandIconEl) {
+    brandIconEl.innerHTML = `<i class="${card.icon}" style="color: ${card.badge_color}"></i>`;
+  }
+
+  showToast(`Đã chọn thẻ mẫu: ${card.issuer} (${card.description})`, 'info');
+}
+
+/**
+ * Tự động điền dữ liệu khi người dùng chọn thẻ ATM Napas mẫu
+ */
+function selectSampleNapasCard(cardId) {
+  const card = officialTestCards.find(c => c.id === cardId);
+  if (!card) return;
+
+  document.querySelectorAll('#sampleNapasCardsList .sample-card-item').forEach(el => el.classList.remove('selected'));
+  const el = document.getElementById(`sampleCard_${cardId}`);
+  if (el) el.classList.add('selected');
+
+  document.getElementById('napasNumber').value = card.card_number;
+  document.getElementById('napasHolder').value = card.card_holder;
+  document.getElementById('napasExpiry').value = card.expiry_date;
+
+  const bankSelect = document.getElementById('napasBankSelect');
+  if (bankSelect) {
+    bankSelect.value = card.id.includes('vcb') ? 'VCB' : 'NCB';
+  }
+
+  showToast(`Đã chọn thẻ ATM Napas: ${card.issuer}`, 'info');
+}
+
+/**
+ * Chuyển tab trong ZaloPay Gateway
+ */
+function switchZpTab(tabId) {
+  document.querySelectorAll('.zp-tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.zp-tab-content').forEach(content => content.classList.remove('active'));
+
+  const activeContent = document.getElementById(tabId);
+  if (activeContent) activeContent.classList.add('active');
+
+  const btnIndex = tabId === 'tabCredit' ? 0 : tabId === 'tabNapas' ? 1 : 2;
+  const buttons = document.querySelectorAll('.zp-tab-btn');
+  if (buttons[btnIndex]) buttons[btnIndex].classList.add('active');
+}
+
+/**
+ * Xử lý tiến hành đặt hàng (Checkout)
+ */
 async function handleCheckout() {
   const name = document.getElementById('custName').value.trim();
   const phone = document.getElementById('custPhone').value.trim();
@@ -347,11 +530,16 @@ async function handleCheckout() {
     return;
   }
 
+  if (!currentCart || currentCart.length === 0) {
+    showToast('Giỏ hàng đang trống!', 'warning');
+    return;
+  }
+
   try {
     const payload = {
       customer: { name, phone, address },
       items: currentCart,
-      payment_method: 'VIRTUAL_SANDBOX'
+      payment_method: 'ZALOPAY_SANDBOX'
     };
 
     const res = await fetch('/api/orders/checkout', {
@@ -365,13 +553,43 @@ async function handleCheckout() {
       currentPendingPayment = data;
       closeModal('cartModal');
 
-      // Mở modal thanh toán ảo
+      // Điền thông tin vào Header của ZaloPay Gateway Modal
       document.getElementById('mockOrderCode').innerText = data.order_code;
-      document.getElementById('mockTransCode').innerText = data.transaction_code;
       document.getElementById('mockAmount').innerText = `${data.total_amount.toLocaleString('vi-VN')} VNĐ`;
-      document.getElementById('mockChecksum').innerText = data.checksum;
+      
+      if (data.zalopay) {
+        document.getElementById('zpAppId').innerText = data.zalopay.appid;
+        document.getElementById('zpAppTransId').innerText = data.zalopay.apptransid;
+        document.getElementById('mockChecksum').innerText = data.zalopay.mac;
+      } else {
+        document.getElementById('mockChecksum').innerText = data.checksum;
+      }
 
+      // Khởi động đếm ngược 15 phút
+      startZpCountdown(15);
+
+      // Reset các view trong modal
+      resetZpViews();
+
+      // Nếu có thẻ mẫu đầu tiên, tự động chọn sẵn để tiện lợi
+      if (officialTestCards.length > 0) {
+        selectSampleCreditCard(officialTestCards[0].id);
+      }
+
+      // Mở modal ZaloPay Gateway
       openModal('paymentModal');
+
+      // Gọi SDK ZaloPay.payOrder theo file zalopay.js để kích hoạt SDK chính thức
+      if (window.ZaloPay && typeof window.ZaloPay.payOrder === 'function') {
+        window.ZaloPay.payOrder(data.zalopay || {
+          appid: 2553,
+          amount: data.total_amount,
+          apptransid: data.transaction_code,
+          mac: data.checksum
+        }, function(sdkResult) {
+          console.log("⚡ [ZaloPay SDK Callback Result]:", sdkResult);
+        });
+      }
     } else {
       showToast(`Lỗi đặt hàng: ${data.error}`, 'error');
     }
@@ -381,6 +599,211 @@ async function handleCheckout() {
   }
 }
 
+/**
+ * Bắt đầu luồng thanh toán thẻ (Credit Card hoặc Napas ATM) -> Chuyển sang OTP 3D-Secure
+ */
+function initiateCardPayment(type) {
+  if (!currentPendingPayment) {
+    showToast('Không tìm thấy thông tin đơn hàng hiện tại!', 'error');
+    return;
+  }
+
+  currentPaymentType = type;
+
+  if (type === 'CREDIT') {
+    const num = document.getElementById('ccNumber').value.trim();
+    const holder = document.getElementById('ccHolder').value.trim();
+    const exp = document.getElementById('ccExpiry').value.trim();
+    const cvv = document.getElementById('ccCvv').value.trim();
+
+    if (!num || !holder || !exp || !cvv) {
+      showToast('Vui lòng điền đầy đủ số thẻ, tên chủ thẻ, ngày hết hạn và mã CVV!', 'warning');
+      return;
+    }
+
+    pendingPaymentData = {
+      card_number: num,
+      card_holder: holder,
+      expiry_date: exp,
+      cvv: cvv,
+      brand: detectCardBrand(num)
+    };
+
+    expectedOtp = '111111';
+    document.getElementById('otpCardBrandTitle').innerText = 'Verified by VISA / Mastercard ID Check';
+  } else if (type === 'ATM') {
+    const num = document.getElementById('napasNumber').value.trim();
+    const holder = document.getElementById('napasHolder').value.trim();
+    const exp = document.getElementById('napasExpiry').value.trim();
+    const bank = document.getElementById('napasBankSelect').value;
+
+    if (!num || !holder || !exp) {
+      showToast('Vui lòng điền đầy đủ số thẻ ATM Napas, tên chủ thẻ và ngày phát hành!', 'warning');
+      return;
+    }
+
+    pendingPaymentData = {
+      card_number: num,
+      card_holder: holder,
+      expiry_date: exp,
+      bank: bank,
+      brand: 'Napas'
+    };
+
+    expectedOtp = '123456';
+    document.getElementById('otpCardBrandTitle').innerText = `Xác thực Napas Smart OTP (${bank})`;
+  }
+
+  // Chuyển sang view xác thực 3D Secure OTP
+  showOtpVerificationView();
+}
+
+/**
+ * Thanh toán qua Ví ZaloPay QR
+ */
+function initiateWalletPayment() {
+  if (!currentPendingPayment) return;
+
+  currentPaymentType = 'WALLET';
+  pendingPaymentData = {
+    phone: '0912345678',
+    name: 'ZaloPay Sandbox User'
+  };
+  expectedOtp = '111111';
+  document.getElementById('otpCardBrandTitle').innerText = 'Xác thực Ví Điện Tử ZaloPay';
+
+  showOtpVerificationView();
+}
+
+function detectCardBrand(num) {
+  const clean = num.replace(/\s+/g, '');
+  if (clean.startsWith('4')) return 'Visa';
+  if (clean.startsWith('5')) return 'Mastercard';
+  if (clean.startsWith('35')) return 'JCB';
+  if (clean.startsWith('9704')) return 'Napas';
+  return 'Credit Card';
+}
+
+function showOtpVerificationView() {
+  document.getElementById('zpGatewayMainView').style.display = 'none';
+  document.getElementById('zpOtpVerificationView').style.display = 'block';
+  document.getElementById('zpSuccessView').style.display = 'none';
+
+  document.getElementById('displaySampleOtp').innerText = expectedOtp;
+  document.getElementById('zpOtpInput').value = '';
+  document.getElementById('otpErrorMessage').style.display = 'none';
+  document.getElementById('zpOtpInput').focus();
+}
+
+function fillSampleOtp() {
+  document.getElementById('zpOtpInput').value = expectedOtp;
+}
+
+function cancelOtpVerification() {
+  document.getElementById('zpOtpVerificationView').style.display = 'none';
+  document.getElementById('zpGatewayMainView').style.display = 'block';
+}
+
+function resetZpViews() {
+  document.getElementById('zpGatewayMainView').style.display = 'block';
+  document.getElementById('zpOtpVerificationView').style.display = 'none';
+  document.getElementById('zpSuccessView').style.display = 'none';
+  switchZpTab('tabCredit');
+}
+
+/**
+ * Xác nhận OTP và gửi yêu cầu thanh toán đến Backend
+ */
+async function submitOtpVerification() {
+  if (!currentPendingPayment) return;
+
+  const enteredOtp = document.getElementById('zpOtpInput').value.trim();
+  const errorEl = document.getElementById('otpErrorMessage');
+
+  if (!enteredOtp) {
+    errorEl.innerText = 'Vui lòng nhập mã OTP để tiếp tục!';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const payload = {
+      transaction_code: currentPendingPayment.transaction_code,
+      payment_type: currentPaymentType,
+      card_data: pendingPaymentData,
+      wallet_data: currentPaymentType === 'WALLET' ? pendingPaymentData : null,
+      otp: enteredOtp
+    };
+
+    const res = await fetch('/api/payment/process-card', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      // Thành công!
+      errorEl.style.display = 'none';
+      
+      // Hiển thị view hoàn tất thành công trong modal
+      document.getElementById('zpOtpVerificationView').style.display = 'none';
+      document.getElementById('zpSuccessView').style.display = 'block';
+      document.getElementById('zpSuccessReceipt').innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+          <span>Mã đơn hàng:</span> <strong>#${currentPendingPayment.order_code}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+          <span>Mã giao dịch ZaloPay:</span> <code>${currentPendingPayment.transaction_code}</code>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+          <span>Hình thức thanh toán:</span> <strong>${data.card_brand || 'ZaloPay'} (${currentPaymentType})</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+          <span>Số tiền thanh toán:</span> <strong style="color: #16a34a;">${currentPendingPayment.total_amount.toLocaleString('vi-VN')} VNĐ</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Trạng thái:</span> <span class="badge" style="background: #dcfce7; color: #16a34a; font-weight: 700;">ĐÃ THANH TOÁN (PAID)</span>
+        </div>
+      `;
+
+      showToast(`🎉 Thanh toán thành công qua ZaloPay! Đơn hàng #${currentPendingPayment.order_code} đã được xác nhận (Kích hoạt Trigger trừ kho & lưu lịch sử)`, 'success');
+
+      // Callback ZaloPay SDK nếu có
+      if (window._zpPayOrderCallback) {
+        window._zpPayOrderCallback({ error: 1, errorCode: 1, errorMessage: "Payment Success" });
+        window._zpPayOrderCallback = null;
+      }
+
+      // Xóa giỏ hàng và cập nhật tồn kho
+      currentCart = [];
+      saveCart();
+      loadProducts(activeCategory);
+
+      // Đóng modal sau 2.5 giây để người dùng kịp nhìn biên lai
+      setTimeout(() => {
+        closeModal('paymentModal');
+        currentPendingPayment = null;
+        if (zpCountdownInterval) clearInterval(zpCountdownInterval);
+      }, 2500);
+
+    } else {
+      // Thất bại (OTP sai, hoặc thẻ từ chối)
+      errorEl.innerText = data.message || 'Giao dịch không thành công!';
+      errorEl.style.display = 'block';
+      showToast(data.message || 'Lỗi xác thực thanh toán!', 'error');
+    }
+  } catch (err) {
+    console.error(err);
+    errorEl.innerText = 'Lỗi kết nối tới cổng thanh toán!';
+    errorEl.style.display = 'block';
+  }
+}
+
+/**
+ * Hủy giao dịch (Mô phỏng Rollback kho và Trigger)
+ */
 async function handleMockPaymentCallback(status) {
   if (!currentPendingPayment) return;
 
@@ -396,23 +819,49 @@ async function handleMockPaymentCallback(status) {
 
     const data = await res.json();
     closeModal('paymentModal');
+    if (zpCountdownInterval) clearInterval(zpCountdownInterval);
 
     if (data.success) {
       if (status === 'SUCCESS') {
-        showToast(`🎉 Thanh toán thành công! Đơn hàng #${currentPendingPayment.order_code} đã được xác nhận (Kích hoạt Trigger trừ kho & lưu lịch sử)`, 'success');
+        showToast(`🎉 Đã xác nhận thanh toán đơn #${currentPendingPayment.order_code}`, 'success');
         currentCart = [];
         saveCart();
       } else {
-        showToast(`Giao dịch đơn hàng #${currentPendingPayment.order_code} đã bị hủy! Đã hoàn lại số lượng tồn kho.`, 'warning');
+        showToast(`Giao dịch đơn hàng #${currentPendingPayment.order_code} đã bị hủy! Hệ thống đã tự động hoàn lại số lượng tồn kho (Rollback Trigger).`, 'warning');
       }
       currentPendingPayment = null;
-      loadProducts(activeCategory); // Cập nhật lại tồn kho hiển thị
+      loadProducts(activeCategory);
     } else {
       showToast(`Lỗi xử lý giao dịch: ${data.error}`, 'error');
     }
   } catch (err) {
     console.error(err);
   }
+}
+
+/**
+ * Đếm ngược thời gian hết hạn giao dịch (15 phút)
+ */
+function startZpCountdown(minutes) {
+  if (zpCountdownInterval) clearInterval(zpCountdownInterval);
+  let totalSeconds = minutes * 60;
+  const countdownEl = document.getElementById('zpCountdown');
+
+  zpCountdownInterval = setInterval(() => {
+    if (totalSeconds <= 0) {
+      clearInterval(zpCountdownInterval);
+      if (countdownEl) countdownEl.innerText = '00:00 (Hết hạn)';
+      handleMockPaymentCallback('CANCELLED');
+      return;
+    }
+
+    totalSeconds--;
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    if (countdownEl) {
+      countdownEl.innerText = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+  }, 1000);
 }
 
 // ========================================================
