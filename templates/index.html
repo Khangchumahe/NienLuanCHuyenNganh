@@ -15,6 +15,60 @@
   
   <!-- Stylesheet -->
   <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    /* Customer link styled to match existing navbar actions */
+    .nav-actions .btn-customer-account {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: #eef2ff;
+      color: #273c77;
+      border: 1px solid #d9e2f3;
+      border-radius: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: background-color .2s ease;
+    }
+    .nav-actions .btn-customer-account #accountNavLabel {
+      max-width: 190px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .nav-actions .btn-customer-account:hover {
+      background: #dfe7ff;
+    }
+    .nav-actions .account-nav { position: relative; flex: 0 0 auto; }
+    .nav-actions .account-chevron { font-size: 11px; margin-left: 2px; }
+    .nav-actions .account-dropdown {
+      position: absolute; right: 0; top: calc(100% + 10px); z-index: 10000;
+      width: 260px; padding: 8px; background: #fff; color: #16233d;
+      border: 1px solid #dbe3f0; border-radius: 14px;
+      box-shadow: 0 15px 42px rgba(14, 27, 60, .17);
+    }
+    .nav-actions .account-dropdown[hidden], .nav-actions .account-chevron[hidden], .nav-actions .account-dropdown a[hidden] { display: none !important; }
+    .nav-actions .account-dropdown-head {
+      padding: 12px 11px; color: #5b6b88; font-size: 13px;
+      border-bottom: 1px solid #e9eef6; margin-bottom: 5px;
+      overflow-wrap: anywhere;
+    }
+    .nav-actions .account-dropdown a, .nav-actions .account-dropdown button {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      box-sizing: border-box; padding: 11px; border: 0; border-radius: 9px;
+      background: transparent; color: #1a2f55; font: inherit;
+      font-size: 14px; text-decoration: none; cursor: pointer; text-align: left;
+    }
+    .nav-actions .account-dropdown a:hover, .nav-actions .account-dropdown button:hover { background: #eef2ff; }
+    .nav-actions .account-dropdown .account-logout { color: #b42333; border-top: 1px solid #e9eef6; border-radius: 0; margin-top: 4px; }
+    .nav-actions .account-dropdown .account-logout:disabled { opacity: .5; cursor: wait; }
+    @media (max-width: 620px) {
+      .nav-actions .account-dropdown { right: -20px; max-width: calc(100vw - 28px); }
+      .nav-actions .btn-customer-account #accountNavLabel { max-width: 130px; }
+    }
+  </style>
 </head>
 <body>
 
@@ -42,6 +96,23 @@
           <span>SQL & Triggers</span>
         </button>
         
+        <!-- Customer / Admin account menu -->
+        <div class="account-nav" id="accountNav">
+          <button type="button" class="btn-nav-action btn-customer-account" id="accountNavButton"
+                  aria-haspopup="true" aria-expanded="false" aria-controls="accountDropdown">
+            <i class="fa-solid fa-circle-user"></i>
+            <span id="accountNavLabel">Tài khoản</span>
+            <i class="fa-solid fa-chevron-down account-chevron" id="accountChevron" hidden></i>
+          </button>
+          <div class="account-dropdown" id="accountDropdown" hidden>
+            <div class="account-dropdown-head" id="accountDropdownHead"></div>
+            <a id="accountMainLink" href="/customer"><i class="fa-regular fa-id-card"></i> Tài khoản của tôi</a>
+            <a id="accountOrdersLink" href="/customer?tab=orders"><i class="fa-solid fa-box"></i> Đơn hàng của tôi</a>
+            <a id="accountProfileLink" href="/customer?tab=profile"><i class="fa-solid fa-user-pen"></i> Hồ sơ</a>
+            <button type="button" class="account-logout" id="accountLogout"><i class="fa-solid fa-right-from-bracket"></i> Đăng xuất</button>
+          </div>
+        </div>
+
         <button id="btnOpenCart" class="btn-nav-action btn-cart">
           <i class="fa-solid fa-bag-shopping"></i>
           <span>Giỏ hàng</span>
@@ -343,5 +414,104 @@
 
   <!-- Scripts -->
   <script src="/static/js/app.js"></script>
+  <!-- Account menu: verified server session, CSRF-protected logout -->
+  <script>
+    (() => {
+      const menuRoot = document.getElementById('accountNav');
+      const toggle = document.getElementById('accountNavButton');
+      const dropdown = document.getElementById('accountDropdown');
+      const label = document.getElementById('accountNavLabel');
+      const chevron = document.getElementById('accountChevron');
+      const head = document.getElementById('accountDropdownHead');
+      const main = document.getElementById('accountMainLink');
+      const orders = document.getElementById('accountOrdersLink');
+      const profile = document.getElementById('accountProfileLink');
+      const logout = document.getElementById('accountLogout');
+      let signedIn = false;
+      let csrf = '';
+
+      function closeMenu() {
+        dropdown.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+      function resetMenu() {
+        signedIn = false;
+        csrf = '';
+        closeMenu();
+        label.textContent = 'Tài khoản';
+        chevron.hidden = true;
+        toggle.title = 'Đăng nhập hoặc đăng ký';
+      }
+      async function refreshAccount() {
+        resetMenu();
+        try {
+          const response = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' });
+          if (!response.ok) return;
+          const data = await response.json();
+          if (!data.success || !data.user) return;
+          const user = data.user;
+          if (user.role !== 'CUSTOMER' && user.role !== 'ADMIN') return;
+          signedIn = true;
+          csrf = data.csrf_token || '';
+          chevron.hidden = false;
+          if (user.role === 'ADMIN') {
+            label.textContent = 'Quản trị';
+            head.textContent = user.full_name || user.email || 'Quản trị viên';
+            main.href = '/admin/dashboard';
+            main.innerHTML = '<i class="fa-solid fa-gauge"></i> Bảng điều khiển Admin';
+            orders.href = '/admin/dashboard';
+            orders.innerHTML = '<i class="fa-solid fa-box"></i> Quản lý đơn hàng';
+            profile.hidden = true;
+          } else {
+            label.textContent = 'Xin chào, ' + (user.full_name || 'Khách hàng');
+            head.textContent = user.email || 'Khách hàng';
+            main.href = '/customer';
+            main.innerHTML = '<i class="fa-regular fa-id-card"></i> Tài khoản của tôi';
+            orders.href = '/customer?tab=orders';
+            orders.innerHTML = '<i class="fa-solid fa-box"></i> Đơn hàng của tôi';
+            profile.hidden = false;
+          }
+          toggle.title = 'Mở menu tài khoản';
+        } catch (e) {
+          resetMenu();
+        }
+      }
+
+      toggle.addEventListener('click', () => {
+        if (!signedIn) { window.location.href = '/customer'; return; }
+        dropdown.hidden = !dropdown.hidden;
+        toggle.setAttribute('aria-expanded', String(!dropdown.hidden));
+      });
+      document.addEventListener('click', (event) => {
+        if (!menuRoot.contains(event.target)) closeMenu();
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeMenu();
+      });
+      logout.addEventListener('click', async () => {
+        if (!csrf) { alert('Phiên đăng nhập không còn hợp lệ. Vui lòng tải lại trang.'); return; }
+        logout.disabled = true;
+        try {
+          const response = await fetch('/api/auth/logout', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+            body: '{}'
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success) throw new Error(data.error || 'Đăng xuất thất bại');
+          // Clear the old account-specific menu immediately after server success.
+          resetMenu();
+          window.location.href = '/customer';
+        } catch (error) {
+          alert(error.message || 'Không thể đăng xuất');
+          await refreshAccount();
+        } finally {
+          logout.disabled = false;
+        }
+      });
+      refreshAccount();
+      window.addEventListener('pageshow', (event) => { if (event.persisted) refreshAccount(); });
+    })();
+  </script>
 </body>
 </html>
