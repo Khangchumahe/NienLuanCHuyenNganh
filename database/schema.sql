@@ -143,3 +143,17 @@ BEGIN
     INSERT INTO inventory_logs (variant_id, change_quantity, remaining_stock, reason)
     VALUES (NEW.id, (NEW.stock_quantity - OLD.stock_quantity), NEW.stock_quantity, 'Cập nhật kho từ hệ thống');
 END;
+
+
+-- 9. TÀI KHOẢN ADMIN / CUSTOMER
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    phone TEXT,
+    role TEXT NOT NULL DEFAULT 'CUSTOMER' CHECK (role IN ('ADMIN', 'CUSTOMER')),
+    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+-- SQLite đã tạo UNIQUE index tự động cho email.
