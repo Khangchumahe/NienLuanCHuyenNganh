@@ -1,0 +1,17 @@
+ TICH HOP API AUTH
+
+1. Sao luu file app.py cu o thu muc goc du an.
+2. Chi thay the file app.py o thu muc goc; KHONG thay database/db.py, schema.sql, store.db.
+3. Trong VS Code Terminal (venv), chay: python app.py
+4. API moi:
+   POST /api/auth/register  JSON {"email":"demo@example.com","password":"TestPassword123","full_name":"Demo"}
+   POST /api/auth/login     JSON {"email":"demo@example.com","password":"TestPassword123"}
+   GET  /api/auth/me
+   POST /api/auth/logout  can header X-CSRF-Token lay tu login/me
+5. GET /api/admin/stats chi danh cho ADMIN, tra 401 (chua login), 403 (Customer).
+   POST /api/ai/sync-rag chi danh cho ADMIN va can X-CSRF-Token.
+6. Chua co giao dien dang nhap; can tich hop frontend.
+7. Chu y: Phan thanh toan gia lap va checkout cu van chua duoc bao ve/kiem thu bao mat.
+8. Truoc khi trien khai that: dat FLASK_SECRET_KEY la chuoi ngau nhien bi mat, 
+   FLASK_COOKIE_SECURE=1 khi chay qua HTTPS; tat debug.
+9. Chung toi chi kiem tra syntax trong moi truong tao file (khong co Flask de kiem thu tich hop).

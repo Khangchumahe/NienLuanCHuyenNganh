@@ -3,10 +3,14 @@ Flask Application for Clothing Store
 Tích hợp: RAG AI Chatbot, Virtual Payment Simulator, SQL Database (Triggers & Stored Procedures)
 """
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session, g
+from functools import wraps
+import os
+import secrets
 from database.db import (
     init_db, get_all_products, get_product_by_id, 
-    sp_create_order_and_deduct_stock, get_db_stats
+    sp_create_order_and_deduct_stock, get_db_stats,
+    create_user, verify_user, get_db_connection
 )
 from services.rag_engine import rag_service
 from services.payment_service import (
@@ -16,6 +20,100 @@ from services.payment_service import (
 )
 
 app = Flask(__name__)
+# Thiết lập FLASK_SECRET_KEY trong môi trường khi triển khai thật.
+app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.environ.get('FLASK_COOKIE_SECURE') == '1',
+    MAX_CONTENT_LENGTH=1024 * 1024,
+)
+
+
+def current_user():
+    user_id = session.get('user_id')
+    if not isinstance(user_id, int):
+        return None
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            'SELECT id, email, full_name, phone, role FROM users '
+            'WHERE id = ? AND is_active = 1', (user_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def require_login(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        g.user = current_user()
+        if g.user is None:
+            return jsonify(success=False, error='Bạn cần đăng nhập'), 401
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def require_admin(view):
+    @wraps(view)
+    @require_login
+    def wrapped(*args, **kwargs):
+        if g.user['role'] != 'ADMIN':
+            return jsonify(success=False, error='Bạn không có quyền Admin'), 403
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def require_csrf(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        expected = session.get('csrf_token')
+        supplied = request.headers.get('X-CSRF-Token', '')
+        if not expected or not secrets.compare_digest(expected, supplied):
+            return jsonify(success=False, error='CSRF token không hợp lệ'), 403
+        return view(*args, **kwargs)
+    return wrapped
+
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_register():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='Cần gửi JSON hợp lệ'), 400
+    result = create_user(data.get('email'), data.get('password'),
+                         data.get('full_name'), data.get('phone'))
+    return jsonify(result), (201 if result['success'] else 400)
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='Cần gửi JSON hợp lệ'), 400
+    user = verify_user(data.get('email'), data.get('password'))
+    if not user:
+        return jsonify(success=False, error='Email hoặc mật khẩu không đúng'), 401
+    session.clear()
+    session['user_id'] = user['id']
+    session['csrf_token'] = secrets.token_urlsafe(32)
+    session.permanent = False
+    return jsonify(success=True, user=user, csrf_token=session['csrf_token'])
+
+
+@app.route('/api/auth/me', methods=['GET'])
+@require_login
+def api_me():
+    return jsonify(success=True, user=g.user, csrf_token=session.get('csrf_token'))
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+@require_login
+@require_csrf
+def api_logout():
+    session.clear()
+    return jsonify(success=True, message='Đã đăng xuất')
+
 
 # Khởi tạo Database và nạp dữ liệu mẫu
 init_db()
@@ -38,40 +136,73 @@ def api_product_detail(product_id):
         return jsonify({'success': False, 'message': 'Không tìm thấy sản phẩm'}), 404
     return jsonify({'success': True, 'product': product})
 
+
 @app.route('/api/orders/checkout', methods=['POST'])
 def api_checkout():
-    """API Đặt hàng mô phỏng Stored Procedure & trừ kho an toàn"""
-    data = request.get_json() or {}
+    """API dat hang va lien ket voi Customer"""
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='JSON khong hop le'), 400
+
     customer_info = data.get('customer', {})
     cart_items = data.get('items', [])
     payment_method = data.get('payment_method', 'ZALOPAY_SANDBOX')
 
-    if not cart_items:
-        return jsonify({'success': False, 'error': 'Giỏ hàng đang trống!'}), 400
+    if not isinstance(cart_items, list) or not cart_items:
+        return jsonify(success=False, error='Gio hang dang trong!'), 400
 
-    result = sp_create_order_and_deduct_stock(customer_info, cart_items, payment_method)
-    
-    if result['success']:
-        # Đồng bộ lại tồn kho mới nhất cho RAG
-        rag_service.sync_knowledge_base()
-        
-        # Sinh checksum bảo mật cho giao dịch ảo
-        checksum = generate_checksum(result['transaction_code'], result['total_amount'])
-        result['checksum'] = checksum
+    # Lay Customer ID tu phien dang nhap
+    customer_user_id = None
+    session_user_id = session.get('user_id')
 
-        # Sinh dữ liệu đơn hàng ZaloPay Sandbox chính thức (tương thích zalopay.js)
-        zalopay_payload = create_zalopay_order_payload(
-            order_code=result['order_code'],
-            transaction_code=result['transaction_code'],
-            amount=result['total_amount'],
-            customer_info=customer_info,
-            items=cart_items
-        )
-        result['zalopay'] = zalopay_payload
+    if session_user_id is not None:
+        conn = get_db_connection()
+        try:
+            user = conn.execute(
+                "SELECT id, role FROM users WHERE id = ?",
+                (session_user_id,)
+            ).fetchone()
 
-        return jsonify(result)
-    else:
+            if user and user['role'] == 'CUSTOMER':
+                customer_user_id = user['id']
+        finally:
+            conn.close()
+
+    # Tao don, tru kho va lien ket Customer trong transaction
+    result = sp_create_order_and_deduct_stock(
+        customer_info,
+        cart_items,
+        payment_method,
+        customer_user_id=customer_user_id
+    )
+
+    if not result['success']:
         return jsonify(result), 400
+
+    # Dong bo RAG sau khi don duoc tao
+    try:
+        rag_service.sync_knowledge_base()
+    except Exception:
+        app.logger.exception('RAG sync failed after checkout')
+
+    checksum = generate_checksum(
+        result['transaction_code'],
+        result['total_amount']
+    )
+    result['checksum'] = checksum
+
+    # Sinh payload ZaloPay Sandbox chính thức tương thích zalopay.js.
+    result['zalopay'] = create_zalopay_order_payload(
+        order_code=result['order_code'],
+        transaction_code=result['transaction_code'],
+        amount=result['total_amount'],
+        customer_info=customer_info,
+        items=cart_items
+    )
+
+    return jsonify(result)
+
 
 @app.route('/api/payment/test-cards', methods=['GET'])
 def api_test_cards():
@@ -81,6 +212,7 @@ def api_test_cards():
         'cards': OFFICIAL_TEST_CARDS,
         'wallets': OFFICIAL_WALLETS
     })
+
 
 @app.route('/api/payment/process-card', methods=['POST'])
 def api_process_card_payment():
@@ -108,6 +240,7 @@ def api_process_card_payment():
         rag_service.sync_knowledge_base()
 
     return jsonify(result)
+
 
 @app.route('/api/payment/simulate-callback', methods=['POST'])
 def api_payment_callback():
@@ -140,16 +273,70 @@ def api_ai_chat():
     })
 
 @app.route('/api/ai/sync-rag', methods=['POST'])
+@require_admin
+@require_csrf
 def api_sync_rag():
     """Đồng bộ lại Knowledge Base của RAG từ SQL"""
     count = rag_service.sync_knowledge_base()
     return jsonify({'success': True, 'synced_count': count, 'message': f'Đã đồng bộ {count} tài liệu sản phẩm vào RAG!'})
 
 @app.route('/api/admin/stats', methods=['GET'])
+@require_admin
 def api_admin_stats():
     """Lấy dữ liệu thống kê kiểm tra Trigger và Database"""
     stats = get_db_stats()
     return jsonify({'success': True, 'stats': stats})
+
+
+# Admin - Quan ly san pham va kho hang
+from admin_products import register_admin_product_routes
+
+register_admin_product_routes(
+    app,
+    require_admin,
+    require_csrf,
+    rag_service
+)
+# Admin - Quan ly size, mau sac
+from admin_variants import register_admin_variant_routes
+
+register_admin_variant_routes(
+    app,
+    require_admin,
+    require_csrf
+)
+
+
+# Admin - Quan ly don hang
+from admin_orders import register_admin_order_routes
+
+register_admin_order_routes(
+    app,
+    require_admin,
+    require_csrf
+)
+
+
+# Admin Dashboard
+from admin_dashboard import register_admin_dashboard_routes
+
+register_admin_dashboard_routes(
+    app,
+    require_admin
+)
+
+
+# Customer Portal
+from customer_portal import register_customer_routes
+
+register_customer_routes(
+    app,
+    require_login,
+    require_csrf
+)
+
+
+
 
 if __name__ == '__main__':
     print("=" * 60)
