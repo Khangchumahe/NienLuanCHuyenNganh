@@ -43,23 +43,3 @@ Thumbs.db
 
 # Logs
 *.log
-
-
-# File cookie dang nhap thu nghiem
-cookies.txt
-admin_cookies.txt
-
-# Script tao va reset tai khoan Admin
-create_admin.py
-reset_admin_password.py
-
-# SQLite database local
-database/store.db
-
-# Moi truong ao Python
-venv/
-
-# Python cache
-__pycache__/
-*.pyc
-
