@@ -6,9 +6,6 @@ import sqlite3
 import os
 import json
 from datetime import datetime
-import hashlib
-import hmac
-import secrets
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'store.db')
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), 'schema.sql')
@@ -27,6 +24,10 @@ def init_db():
     conn.commit()
     conn.close()
     seed_sample_data()
+
+# Tự động khởi tạo ngay khi module db được import nếu database chưa tồn tại
+if not os.path.exists(DB_PATH):
+    init_db()
 
 
 def seed_sample_data():
@@ -217,7 +218,7 @@ def seed_sample_data():
 # CÁC HÀM MÔ PHỎNG STORED PROCEDURE & ACID TRANSACTIONS
 # ========================================================
 
-def sp_create_order_and_deduct_stock(customer_info, cart_items, payment_method="VIRTUAL_SANDBOX",customer_user_id=None):
+def sp_create_order_and_deduct_stock(customer_info, cart_items, payment_method="VIRTUAL_SANDBOX"):
     """
     Thủ tục mô phỏng Stored Procedure tạo đơn hàng và trừ kho an toàn (ACID Transaction).
     Nếu bất kỳ biến thể nào không đủ tồn kho, Transaction sẽ ROLLBACK ngay lập tức.
@@ -287,35 +288,21 @@ def sp_create_order_and_deduct_stock(customer_info, cart_items, payment_method="
                 WHERE id = ?
             """, (v['quantity'], v['variant_id']))
 
-          # 4. Tao ban ghi thanh toan ao
-            trans_code = f"TRX-{datetime.now().strftime('%Y%m%d%H%M')}-{order_id}"
+        # 4. Tạo bản ghi thanh toán ảo
+        trans_code = f"TRX-{datetime.now().strftime('%y%m%d%H%M')}-{order_id}"
+        cursor.execute("""
+            INSERT INTO payments (order_id, transaction_code, amount, status)
+            VALUES (?, ?, ?, 'PENDING')
+        """, (order_id, trans_code, total_amount))
 
-            cursor.execute("""
-                INSERT INTO payments (
-                    order_id, transaction_code, amount, status
-                )
-                VALUES (?, ?, ?, 'PENDING')
-            """, (order_id, trans_code, total_amount))
-
-            # 5. Lien ket don hang voi Customer
-            if customer_user_id is not None:
-                cursor.execute(
-                    """
-                    INSERT INTO customer_order_links (order_id, user_id)
-                    VALUES (?, ?)
-                    """,
-                    (order_id, customer_user_id)
-                )
-
-            conn.commit()
-
-            return {
-                'success': True,
-                'order_id': order_id,
-                'order_code': order_code,
-                'transaction_code': trans_code,
-                'total_amount': total_amount
-            }
+        conn.commit()
+        return {
+            'success': True,
+            'order_id': order_id,
+            'order_code': order_code,
+            'transaction_code': trans_code,
+            'total_amount': total_amount
+        }
     except Exception as e:
         conn.rollback()
         return {
@@ -458,76 +445,3 @@ def get_db_stats():
         'recent_status_logs': recent_status_logs,
         'recent_inventory_logs': recent_inventory_logs
     }
-
-
-# ========================================================
-# QUẢN LÝ TÀI KHOẢN (ADMIN / CUSTOMER)
-# ========================================================
-
-def _hash_password(password):
-    """PBKDF2-HMAC-SHA256 với salt ngẫu nhiên; không lưu mật khẩu gốc."""
-    iterations = 600_000
-    salt = secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, iterations)
-    return f"pbkdf2_sha256${iterations}${salt.hex()}${digest.hex()}"
-
-def _check_password(password, stored_hash):
-    try:
-        scheme, iter_text, salt_hex, digest_hex = stored_hash.split('$')
-        if scheme != 'pbkdf2_sha256':
-            return False
-        calculated = hashlib.pbkdf2_hmac(
-            'sha256', password.encode('utf-8'), bytes.fromhex(salt_hex), int(iter_text)
-        )
-        return hmac.compare_digest(calculated, bytes.fromhex(digest_hex))
-    except (ValueError, AttributeError, TypeError):
-        return False
-
-def create_user(email, password, full_name, phone=None):
-    """Tạo tài khoản CUSTOMER; không cho người đăng ký tự chọn ADMIN."""
-    email = (email or '').strip().lower()
-    full_name = (full_name or '').strip()
-    if not email or '@' not in email or len(email) > 254:
-        return {'success': False, 'error': 'Email không hợp lệ'}
-    if len(password or '') < 8:
-        return {'success': False, 'error': 'Mật khẩu phải có ít nhất 8 ký tự'}
-    if not full_name:
-        return {'success': False, 'error': 'Vui lòng nhập họ tên'}
-
-    conn = get_db_connection()
-    try:
-        cur = conn.execute(
-            "INSERT INTO users (email, password_hash, full_name, phone, role) "
-            "VALUES (?, ?, ?, ?, 'CUSTOMER')",
-            (email, _hash_password(password), full_name, phone)
-        )
-        conn.commit()
-        return {'success': True, 'user_id': cur.lastrowid}
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        return {'success': False, 'error': 'Email đã được đăng ký'}
-    finally:
-        conn.close()
-
-def get_user_by_email(email):
-    """Dành cho backend; kết quả có password_hash, không gửi thẳng về frontend."""
-    conn = get_db_connection()
-    try:
-        row = conn.execute(
-            'SELECT * FROM users WHERE email = ?', ((email or '').strip().lower(),)
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-def verify_user(email, password):
-    """Xác thực; chỉ trả dữ liệu công khai, không trả password_hash."""
-    user = get_user_by_email(email)
-    if not user or not user['is_active'] or not _check_password(password or '', user['password_hash']):
-        return None
-    return {key: user[key] for key in ('id', 'email', 'full_name', 'phone', 'role')}
-
-
-# Chạy sau khi tất cả hàm đã được định nghĩa (tránh NameError khi khởi tạo mới).
-if not os.path.exists(DB_PATH):
-    init_db()
