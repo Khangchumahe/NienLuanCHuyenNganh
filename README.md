@@ -1,6 +1,6 @@
 # 🛍️ AURA FASHION - WEBSITE BÁN QUẦN ÁO TÍCH HỢP RAG AI & THANH TOÁN ẢO
 > **Đề tài:** Niên luận Chuyên ngành Kỹ thuật Phần mềm  
-> **Ngôn ngữ & Công nghệ:** Python (Flask), SQLite3 (ACID, Triggers, Indexes, Stored Procedures), RAG Engine (Cosine Similarity Vector Search), HTML5 / Vanilla CSS / JavaScript ES6.
+> **Ngôn ngữ & Công nghệ:** Python (Flask), SQLite3 (ACID, Triggers, Indexes, Stored Procedures), RAG Engine (TF-IDF Cosine Retrieval), HTML5 / Vanilla CSS / JavaScript ES6.
 
 ---
 
@@ -16,7 +16,7 @@
 
 ## 1. GIỚI THIỆU ĐỀ TÀI
 Hệ thống là một nền tảng thương mại điện tử chuyên ngành thời trang với 3 trụ cột kỹ thuật:
-1. **Chatbot AI sử dụng RAG (Retrieval-Augmented Generation):** Tư vấn chọn size chuẩn xác theo chiều cao, cân nặng, phong cách dựa trên dữ liệu sản phẩm thực tế trong kho (không bị ảo giác/hallucination).
+1. **Chatbot RAG (Retrieval-Augmented Generation):** Truy xuất sản phẩm theo nội dung, số đo bảng size và tồn kho trong SQL; hiện phản hồi bằng mẫu cục bộ, chưa kết nối LLM.
 2. **Cổng thanh toán ảo mô phỏng (Virtual Sandbox Payment):** Mô phỏng luồng thanh toán VNPAY/MoMo với mã giao dịch, kiểm tra chữ ký điện tử HMAC-SHA256 và cơ chế Webhook IPN.
 3. **Cơ sở dữ liệu quan hệ (SQL) tối ưu:** Áp dụng CRUD, Index B-Tree, Trigger tự động kiểm tra số lượng tồn kho và ghi log kiểm toán, Stored Procedure (Transaction ACID) đảm bảo trừ kho và đặt hàng an toàn tuyệt đối.
 
@@ -30,7 +30,7 @@ NienLuanChuyenNganh/
 │   ├── db.py                # Kết nối SQLite, Seed data mẫu, Stored Procedure (Transaction)
 │   └── store.db             # File cơ sở dữ liệu SQLite (tự sinh khi chạy app)
 ├── services/
-│   ├── rag_engine.py        # Pipeline RAG: Chunking, Cosine Similarity, Augmented Prompt, Trace
+│   ├── rag_engine.py        # Pipeline RAG: TF-IDF, size-aware retrieval, context và trace
 │   └── payment_service.py   # Dịch vụ thanh toán ảo Sandbox và tạo chữ ký số HMAC-SHA256
 ├── static/
 │   ├── css/
@@ -141,8 +141,8 @@ Mở trình duyệt bất kỳ (Chrome, Edge, Firefox) và truy cập: **`http:/
 * Ở đầu cửa sổ Chatbot, bấm nút **"RAG Trace"**.
 * Hệ thống sẽ hiển thị modal phân tích toàn diện 3 bước của RAG:
   1. **Query Tokens:** Từ khóa bóc tách từ câu hỏi của bạn.
-  2. **Cosine Retrieval:** Danh sách tài liệu sản phẩm lấy từ CSDL SQL và điểm tương đồng (`similarity_score`).
-  3. **Augmented Prompt:** Toàn bộ nội dung prompt được tiêm ngữ cảnh gửi cho AI.
+  2. **Retrieval:** Sản phẩm được xếp hạng bằng TF-IDF cosine, kết hợp số đo bảng size và tình trạng tồn kho.
+  3. **Augmented Prompt:** Nội dung prompt có context để kiểm tra. Hiện tại hệ thống chưa gửi prompt tới LLM; câu trả lời được tạo bằng mẫu cục bộ.
 
 ### ⚡ 4.5. Kiểm Tra CSDL SQL & Triggers (SQL Audit)
 * Trên thanh menu chính, bấm nút **"SQL & Triggers"**.
@@ -200,9 +200,9 @@ Khi lên báo cáo môn Niên luận chuyên ngành, nhóm nên thực hiện th
    * Mở modal **"SQL & Triggers"** để giảng viên thấy Trigger CSDL tự động ghi log trạng thái và xuất kho.
 2. **Bước 2 (Trình diễn Chatbot RAG AI):**
    * Nhập câu hỏi tư vấn chiều cao cân nặng vào Chatbot AI.
-   * Cho thầy/cô thấy bot tư vấn chính xác size áo dựa vào dữ liệu thực tế của shop.
+   * Cho thầy/cô thấy bot đối chiếu size với bảng hướng dẫn và tồn kho thực tế của sản phẩm.
 3. **Bước 3 (Minh chứng Kỹ thuật RAG với RAG Inspector):**
-   * Bấm **"RAG Trace"** trên khung chat để giải thích công thức Cosine Similarity và cách Augmented Prompt hoạt động.
+   * Bấm **"RAG Trace"** trên khung chat để xem TF-IDF cosine, kết quả đối chiếu số đo/tồn kho và context prompt. Prompt hiện chỉ dùng cho trace, chưa gửi tới LLM.
 
 ---
 *Chúc nhóm hoàn thành xuất sắc đồ án Niên luận chuyên ngành Kỹ thuật Phần mềm!* 🎓

@@ -917,6 +917,7 @@ async function sendChatMessage() {
             <div class="chat-prod-item-info">
               <div class="chat-prod-name">${p.name}</div>
               <div class="chat-prod-price">${p.price.toLocaleString('vi-VN')} đ</div>
+              ${p.recommended_size ? `<div class="chat-prod-price">Size phù hợp: ${p.recommended_size}</div>` : ''}
             </div>
             <div class="chat-prod-score">Khớp: ${Math.round(p.similarity_score * 100)}%</div>
           `;
@@ -971,16 +972,23 @@ function renderRagTraceModal(trace) {
     <div class="rag-step-box">
       <div class="rag-step-header">
         <span class="step-num">2</span>
-        <span>Semantic Retrieval (Cosine Similarity) Từ CSDL SQL</span>
+        <span>Truy xuất TF-IDF Cosine + số đo và tồn kho</span>
       </div>
       <div style="font-size: 13px; margin-bottom: 8px;">
-        Đã so khớp với Knowledge Base và trích xuất <strong>${trace.retrieved_count}</strong> sản phẩm phù hợp nhất:
+        Phương thức: <strong>${trace.retrieval_method || 'TF-IDF cosine'}</strong>.
+        Số đo: <strong>${trace.measurements?.height_cm ? `${trace.measurements.height_cm} cm` : 'chưa có chiều cao'}
+        ${trace.measurements?.weight_kg ? `, ${trace.measurements.weight_kg} kg` : ''}</strong>.
+        Đã trích xuất <strong>${trace.retrieved_count}</strong> sản phẩm:
       </div>
       ${trace.retrieved_chunks.map((c, idx) => `
         <div style="background: white; border: 1px solid var(--slate-200); padding: 10px; border-radius: 6px; margin-bottom: 8px; font-size: 12px;">
           <div style="display: flex; justify-content: space-between; font-weight: 700; color: var(--slate-900);">
             <span>Top ${idx + 1}: ${c.product_name}</span>
             <span style="color: var(--primary);">Điểm tương đồng: ${c.similarity_score}</span>
+          </div>
+          <div style="color: var(--slate-600); margin-top: 4px;">
+            ${c.recommended_size ? `Size phù hợp còn hàng: ${c.recommended_size}` : `Size còn hàng: ${c.available_sizes.join(', ') || 'không có dữ liệu'}`}
+            · Điểm từ khóa: ${c.lexical_score}
           </div>
           <div style="color: var(--slate-600); margin-top: 4px;">${c.snippet}</div>
         </div>
@@ -991,10 +999,10 @@ function renderRagTraceModal(trace) {
     <div class="rag-step-box">
       <div class="rag-step-header">
         <span class="step-num">3</span>
-        <span>Prompt Được Tăng Cường (Augmented Prompt Gửi Cho LLM)</span>
+        <span>Prompt Được Tăng Cường (Context Trace)</span>
       </div>
       <div style="font-size: 12px; color: var(--slate-600); margin-bottom: 6px;">
-        Hệ thống tự động tiêm (inject) bối cảnh sản phẩm thực tế vào prompt để tránh hallucination:
+        Prompt được tạo để kiểm tra; phiên bản hiện tại chưa gửi prompt tới LLM.
       </div>
       <div class="rag-code-block">${escapeHtml(trace.augmented_prompt)}</div>
     </div>
