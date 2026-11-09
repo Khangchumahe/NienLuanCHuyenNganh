@@ -3,7 +3,7 @@ Flask Application for Clothing Store
 Tích hợp: RAG AI Chatbot, Virtual Payment Simulator, SQL Database (Triggers & Stored Procedures)
 """
 
-from flask import Flask, render_template, request, jsonify, session, g
+from flask import Flask, render_template, request, jsonify, session, g, redirect, url_for
 from functools import wraps
 import os
 import secrets
@@ -61,6 +61,19 @@ def require_admin(view):
     return wrapped
 
 
+def require_management(view):
+    @wraps(view)
+    @require_login
+    def wrapped(*args, **kwargs):
+        if g.user['role'] not in ('ADMIN', 'STAFF'):
+            return jsonify(
+                success=False,
+                error='Bạn không có quyền quản lý'
+            ), 403
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def require_csrf(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -70,6 +83,22 @@ def require_csrf(view):
             return jsonify(success=False, error='CSRF token không hợp lệ'), 403
         return view(*args, **kwargs)
     return wrapped
+
+
+def account_home(user):
+    if user['role'] == 'ADMIN':
+        return url_for('admin_dashboard_page')
+    if user['role'] == 'STAFF':
+        return url_for('staff_orders_page')
+    return url_for('customer_page')
+
+
+@app.get('/login')
+def login_page():
+    user = current_user()
+    if user:
+        return redirect(account_home(user))
+    return render_template('customer_portal.html')
 
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -222,7 +251,7 @@ def api_ai_chat():
     })
 
 @app.route('/api/ai/sync-rag', methods=['POST'])
-@require_admin
+@require_management
 @require_csrf
 def api_sync_rag():
     """Đồng bộ lại Knowledge Base của RAG từ SQL"""
@@ -242,7 +271,7 @@ from admin_products import register_admin_product_routes
 
 register_admin_product_routes(
     app,
-    require_admin,
+    require_management,
     require_csrf,
     rag_service
 )
@@ -251,7 +280,7 @@ from admin_variants import register_admin_variant_routes
 
 register_admin_variant_routes(
     app,
-    require_admin,
+    require_management,
     require_csrf
 )
 
@@ -261,7 +290,7 @@ from admin_orders import register_admin_order_routes
 
 register_admin_order_routes(
     app,
-    require_admin,
+    require_management,
     require_csrf
 )
 
@@ -271,8 +300,7 @@ from admin_dashboard import register_admin_dashboard_routes
 
 register_admin_dashboard_routes(
     app,
-    require_admin
-)
+    require_admin, current_user)
 
 
 # Customer Portal
@@ -285,6 +313,10 @@ register_customer_routes(
 )
 
 
+
+
+from product_social import register_product_social
+register_product_social(app, require_login, require_csrf, current_user)
 
 
 if __name__ == '__main__':

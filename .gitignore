@@ -1,65 +1,22 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# C++ extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
-venv/
+# Môi trường và file tạm
 .venv/
-ENV/
-env/
-
-# IDE files
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-
-# File cookie dang nhap thu nghiem
-cookies.txt
-admin_cookies.txt
-
-# Script tao va reset tai khoan Admin
-create_admin.py
-reset_admin_password.py
-
-# SQLite database local
-database/store.db
-
-# Moi truong ao Python
 venv/
-
-# Python cache
 __pycache__/
 *.pyc
+node_modules/
 
+# Project tham khảo và file nén
+/New folder/
+*.zip
+
+# Bản sao lưu
+backup_*/
+
+# Dữ liệu và cấu hình riêng trên máy
+admin_cookies.txt
+cookies.txt
+.env
+.env.*
+!.env.example
+database/store.db
+database/store.db-*

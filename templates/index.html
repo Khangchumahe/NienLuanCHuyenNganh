@@ -69,6 +69,7 @@
       .nav-actions .btn-customer-account #accountNavLabel { max-width: 130px; }
     }
   </style>
+<link rel="stylesheet" href="/social-assets/social.css">
 </head>
 <body>
 
@@ -169,11 +170,13 @@
   <section class="category-section">
     <div class="container">
       <div class="category-tabs" id="categoryTabs">
-        <button class="tab-btn active" data-cat="">Tất cả sản phẩm</button>
-        <button class="tab-btn" data-cat="1">Áo Nam</button>
-        <button class="tab-btn" data-cat="2">Quần Nam</button>
-        <button class="tab-btn" data-cat="3">Áo Khoác</button>
-        <button class="tab-btn" data-cat="4">Đầm & Váy Nữ</button>
+        <button type="button" class="tab-btn active" data-cat="">Tất cả sản phẩm</button>
+        <button type="button" class="tab-btn" data-cat="1">Áo Nam</button>
+        <button type="button" class="tab-btn" data-cat="2">Quần Nam</button>
+        <button type="button" class="tab-btn" data-cat="3">Áo Khoác</button>
+        <button type="button" class="tab-btn" data-cat="4">Đầm &amp; Váy Nữ</button>
+        <button type="button" class="tab-btn" data-cat="5">Áo Nữ</button>
+        <button type="button" class="tab-btn" data-cat="6">Quần Nữ</button>
       </div>
     </div>
   </section>
@@ -450,16 +453,16 @@
           const data = await response.json();
           if (!data.success || !data.user) return;
           const user = data.user;
-          if (user.role !== 'CUSTOMER' && user.role !== 'ADMIN') return;
+          if (!['CUSTOMER', 'ADMIN', 'STAFF'].includes(user.role)) return;
           signedIn = true;
           csrf = data.csrf_token || '';
           chevron.hidden = false;
-          if (user.role === 'ADMIN') {
-            label.textContent = 'Quản trị';
+          if (user.role === 'ADMIN' || user.role === 'STAFF') {
+            label.textContent = user.role === 'STAFF' ? 'Nhân viên' : 'Quản trị';
             head.textContent = user.full_name || user.email || 'Quản trị viên';
-            main.href = '/admin/dashboard';
-            main.innerHTML = '<i class="fa-solid fa-gauge"></i> Bảng điều khiển Admin';
-            orders.href = '/admin/dashboard';
+            main.href = user.role === 'STAFF' ? '/staff/orders' : '/admin/dashboard';
+            main.textContent = user.role === 'STAFF' ? 'Quản lý cửa hàng' : 'Bảng điều khiển Admin';
+            orders.href = user.role === 'STAFF' ? '/staff/orders' : '/admin/dashboard';
             orders.innerHTML = '<i class="fa-solid fa-box"></i> Quản lý đơn hàng';
             profile.hidden = true;
           } else {
@@ -513,5 +516,6 @@
       window.addEventListener('pageshow', (event) => { if (event.persisted) refreshAccount(); });
     })();
   </script>
+<script src="/social-assets/social.js" defer></script>
 </body>
 </html>

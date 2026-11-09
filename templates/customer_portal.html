@@ -1,30 +1,1117 @@
-<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Customer · AURA FASHION</title><style>
-:root{font-family:Inter,system-ui,Arial,sans-serif;color:#17243e;background:#f4f6fb}*{box-sizing:border-box}body{margin:0}header{background:#182642;color:white;padding:22px max(22px,calc((100vw - 1180px)/2));display:flex;align-items:center;justify-content:space-between}a{color:inherit}header a{text-decoration:none;color:#b7d5ff}main{max-width:1180px;margin:28px auto;padding:0 20px}.card{background:white;border:1px solid #e1e7f1;border-radius:16px;padding:23px;margin:16px 0;box-shadow:0 3px 15px #17243e09}h1{margin:0 0 7px;font-size:26px}h2{font-size:19px;margin:0 0 15px}.muted{color:#697894}nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}button{cursor:pointer;border:1px solid #cfdaea;border-radius:9px;padding:10px 15px;background:white;color:#1b3158;font-size:14px}button.primary,button.active{background:#223e72;color:white;border-color:#223e72}button:disabled{opacity:.4;cursor:not-allowed}input,select{padding:11px;border:1px solid #cbd5e4;border-radius:9px;font:inherit;width:100%;min-width:0}label{display:grid;gap:5px;color:#62718b;font-size:13px}.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.form .wide{grid-column:1/-1}.actions{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap}.hidden{display:none!important}.message{padding:12px 15px;border-radius:10px;background:#e7f0fe;margin:14px 0;white-space:pre-wrap}.message.error{background:#ffe9e9;color:#a02222}.tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:600px}th,td{text-align:left;border-bottom:1px solid #e8edf4;padding:13px 10px;font-size:14px}th{color:#687997;font-weight:500}.pills{display:flex;gap:10px;flex-wrap:wrap}.pill{padding:7px 10px;background:#eef3fa;border-radius:7px}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.row>*{flex:1}small{color:#697894}@media(max-width:650px){.form{grid-template-columns:1fr}header{padding:18px}main{padding:0 12px}}
-</style></head><body><header><div><strong>AURA FASHION</strong><div style="font-size:12px;color:#a5b9df">CUSTOMER CENTER</div></div><a href="/">← Về cửa hàng</a></header><main><h1>Tài khoản khách hàng</h1><p class="muted">Đăng ký, mua sắm thử nghiệm, xem đơn hàng và cập nhật hồ sơ.</p><div id="message" class="message hidden" role="status"></div>
-<section id="auth" class="card"><h2 id="authTitle">Đăng nhập</h2><div id="registerFields" class="form hidden"><label>Họ và tên<input id="regName" autocomplete="name"></label><label>Số điện thoại<input id="regPhone" autocomplete="tel"></label></div><div class="form"><label>Email<input id="email" type="email" autocomplete="email"></label><label>Mật khẩu<input id="password" type="password" autocomplete="current-password"></label></div><div class="actions"><button class="primary" id="submitAuth">Đăng nhập</button><button id="toggleAuth">Chưa có tài khoản? Đăng ký</button></div></section>
-<section id="portal" class="hidden"><div class="card"><div class="row"><div><h2 id="hello">Xin chào</h2><small id="emailLabel"></small></div><div style="text-align:right"><button id="logout">Đăng xuất</button></div></div><nav><button data-tab="shop" class="active">Mua sắm</button><button data-tab="orders">Đơn hàng của tôi</button><button data-tab="profile">Hồ sơ</button></nav></div>
-<div id="shop" class="card"><h2>Sản phẩm đang bán</h2><p class="muted">Chọn sản phẩm để xem biến thể. Đơn mới sẽ thuộc tài khoản đang đăng nhập.</p><div id="products">Đang tải...</div><div class="card"><h2>Giỏ hàng</h2><div id="cart"></div><div class="form"><label>Điện thoại nhận hàng<input id="shippingPhone"></label><label>Địa chỉ giao hàng<input id="shippingAddress" placeholder="Số nhà, đường, quận/huyện, tỉnh/thành"></label></div><div class="actions"><button class="primary" id="checkout">Đặt hàng thử nghiệm</button><small>Chỉ tạo đơn chờ thanh toán, không tự động xác nhận thanh toán.</small></div></div></div>
-<div id="orders" class="card hidden"><h2>Đơn hàng của tôi</h2><div id="ordersList">Đang tải...</div><div id="orderDetail"></div></div>
-<div id="profile" class="card hidden"><h2>Thông tin cá nhân</h2><div class="form"><label>Họ tên<input id="profileName"></label><label>Điện thoại<input id="profilePhone"></label></div><div class="actions"><button class="primary" id="saveProfile">Lưu hồ sơ</button></div></div></section></main><script>
-const $=id=>document.getElementById(id);let me=null,csrf='',register=false,cart=[];const money=x=>Number(x||0).toLocaleString('vi-VN')+' đ';const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function notice(s,err=false){$('message').textContent=s;$('message').className='message'+(err?' error':'');}async function api(url,method='GET',payload){const r=await fetch(url,{method,credentials:'same-origin',headers:{...(payload?{'Content-Type':'application/json'}:{}),...(method!=='GET'&&csrf?{'X-CSRF-Token':csrf}:{})},body:payload?JSON.stringify(payload):undefined});let d;try{d=await r.json()}catch{throw Error('Máy chủ không trả JSON')};if(!r.ok||!d.success)throw Error(d.error||d.message||`HTTP ${r.status}`);return d;}
-// Mo dung muc Customer khi truy cap tu menu trang chu:
-// /customer?tab=orders | /customer?tab=profile | /customer?tab=shop
-function openRequestedTab(){
-    const tab = new URLSearchParams(window.location.search).get('tab');
-    if (!['shop', 'orders', 'profile'].includes(tab)) return;
-    const button = document.querySelector(`[data-tab="${tab}"]`);
-    if (button) button.click();
-}
-async function refreshMe(){try{const d=await api('/api/auth/me');if(d.user.role!=='CUSTOMER'){notice('Bạn đang đăng nhập Admin. Hãy đăng xuất Admin trước khi sử dụng trang Customer.',true);return}$('auth').classList.add('hidden');$('portal').classList.remove('hidden');me=d.user;csrf=d.csrf_token;$('hello').textContent='Xin chào, '+me.full_name;$('emailLabel').textContent=me.email;$('profileName').value=me.full_name;$('profilePhone').value=me.phone||'';$('shippingPhone').value=me.phone||'';loadProducts();openRequestedTab()}catch{$('auth').classList.remove('hidden');$('portal').classList.add('hidden')}}
-$('toggleAuth').onclick=()=>{register=!register;$('registerFields').classList.toggle('hidden',!register);$('authTitle').textContent=register?'Tạo tài khoản Customer':'Đăng nhập';$('submitAuth').textContent=register?'Đăng ký':'Đăng nhập';$('toggleAuth').textContent=register?'Đã có tài khoản? Đăng nhập':'Chưa có tài khoản? Đăng ký'};
-$('submitAuth').onclick=async()=>{try{const email=$('email').value.trim(),password=$('password').value;if(register){await api('/api/auth/register','POST',{email,password,full_name:$('regName').value.trim(),phone:$('regPhone').value.trim()});notice('Đăng ký thành công. Bạn có thể đăng nhập.');$('toggleAuth').click()}else{const d=await api('/api/auth/login','POST',{email,password});if(d.user?.role!=='CUSTOMER'){notice('Tài khoản Admin không sử dụng ở trang Customer.',true);return}await refreshMe();notice('Đăng nhập thành công')}}catch(e){notice(e.message,true)}};
-$('logout').onclick=async()=>{try{await api('/api/auth/logout','POST',{});me=null;csrf='';cart=[];$('portal').classList.add('hidden');$('auth').classList.remove('hidden');notice('Đã đăng xuất')}catch(e){notice(e.message,true)}};
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{const t=b.dataset.tab;document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));['shop','orders','profile'].forEach(id=>$(id).classList.toggle('hidden',id!==t));if(t==='orders')loadOrders()});
-async function loadProducts(){try{const d=await api('/api/products');$('products').innerHTML='<div class="tablewrap"><table><tr><th>Sản phẩm</th><th>Giá</th><th>Thao tác</th></tr>'+d.products.map(p=>`<tr><td>${esc(p.name)}</td><td>${money(p.discount_price||p.price)}</td><td><button data-product="${Number(p.id)}">Chọn size/màu</button></td></tr>`).join('')+'</table></div><div id="variantPicker"></div>';document.querySelectorAll('[data-product]').forEach(b=>b.onclick=()=>pickProduct(+b.dataset.product))}catch(e){notice(e.message,true)}}
-async function pickProduct(id){try{const d=await api('/api/products/'+id),p=d.product;const variants=p.variants||[];if(!variants.length){$('variantPicker').textContent='Sản phẩm này chưa có biến thể khả dụng.';return}$('variantPicker').innerHTML='<div class="card"><h2>'+esc(p.name)+'</h2>'+variants.map(v=>`<div class="row" style="margin:10px 0"><span>${esc(v.color)} / ${esc(v.size)} — ${esc(v.sku)} — còn ${Number(v.stock_quantity)}</span><button data-variant="${Number(v.id)}" ${v.stock_quantity<1?'disabled':''}>Thêm vào giỏ</button></div>`).join('')+'</div>';document.querySelectorAll('[data-variant]').forEach(b=>b.onclick=()=>{const v=variants.find(x=>x.id===+b.dataset.variant);const existing=cart.find(x=>x.variant_id===v.id);if(existing){if(existing.quantity>=v.stock_quantity){notice('Không đủ tồn kho',true);return}existing.quantity++}else cart.push({variant_id:v.id,quantity:1,name:p.name+' '+v.color+'/'+v.size});renderCart()})}catch(e){notice(e.message,true)}}
-function renderCart(){$('cart').innerHTML=cart.length?cart.map((x,i)=>`<div class="row" style="margin-bottom:9px"><span>${esc(x.name)} — SL ${x.quantity}</span><button data-remove="${i}">Bỏ</button></div>`).join(''):'Giỏ hàng trống';document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{cart.splice(+b.dataset.remove,1);renderCart()})}renderCart();
-$('checkout').onclick=async()=>{if(!cart.length)return notice('Giỏ hàng đang trống',true);if(!confirm('Tạo một đơn hàng thử nghiệm? Thao tác này sẽ trừ kho.'))return;const b=$('checkout');b.disabled=true;try{const d=await api('/api/customer/checkout','POST',{phone:$('shippingPhone').value,address:$('shippingAddress').value,items:cart.map(({variant_id,quantity})=>({variant_id,quantity}))});cart=[];renderCart();notice('Đã tạo đơn '+d.order_code+' — '+money(d.total_amount)+'; trạng thái PENDING_PAYMENT');loadProducts()}catch(e){notice(e.message,true)}finally{b.disabled=false}};
-async function loadOrders(){try{const d=await api('/api/customer/orders');$('ordersList').innerHTML=d.orders.length?'<div class="tablewrap"><table><tr><th>Mã đơn</th><th>Ngày</th><th>Số tiền</th><th>Trạng thái</th><th></th></tr>'+d.orders.map(o=>`<tr><td>${esc(o.order_code)}</td><td>${esc(o.created_at)}</td><td>${money(o.total_amount)}</td><td>${esc(o.status)}</td><td><button data-order="${Number(o.id)}">Chi tiết</button></td></tr>`).join('')+'</table></div>':'Chưa có đơn hàng gắn với tài khoản này.';document.querySelectorAll('[data-order]').forEach(b=>b.onclick=()=>showOrder(+b.dataset.order))}catch(e){notice(e.message,true)}}
-async function showOrder(id){try{const d=await api('/api/customer/orders/'+id);$('orderDetail').innerHTML='<div class="card"><h2>'+esc(d.order.order_code)+'</h2><p>Trạng thái: '+esc(d.order.status)+'</p><p>Giao đến: '+esc(d.order.customer_address)+'</p><h3>Sản phẩm</h3>'+d.items.map(x=>`<p>${esc(x.name)} — ${esc(x.color)}/${esc(x.size)} × ${Number(x.quantity)} — ${money(x.subtotal)}</p>`).join('')+'<h3>Lịch sử trạng thái</h3>'+d.history.map(x=>`<p>${esc(x.old_status)} → ${esc(x.new_status)} · ${esc(x.changed_at)}</p>`).join('')+'</div>'}catch(e){notice(e.message,true)}}
-$('saveProfile').onclick=async()=>{try{await api('/api/customer/profile','PATCH',{full_name:$('profileName').value,phone:$('profilePhone').value});notice('Đã lưu hồ sơ');await refreshMe()}catch(e){notice(e.message,true)}};refreshMe();
-</script></body></html>
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tài khoản · AURA FASHION</title>
+
+    <style>
+        :root {
+            font-family: Inter, system-ui, Arial, sans-serif;
+            color: #17243e;
+            background: #f4f6fb;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+        }
+
+        a {
+            color: inherit;
+        }
+
+        header {
+            background: #182642;
+            color: white;
+            padding: 22px max(22px, calc((100vw - 1180px) / 2));
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        header a {
+            text-decoration: none;
+            color: #b7d5ff;
+        }
+
+        main {
+            max-width: 1180px;
+            margin: 28px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: white;
+            border: 1px solid #e1e7f1;
+            border-radius: 16px;
+            padding: 23px;
+            margin: 16px 0;
+            box-shadow: 0 3px 15px #17243e09;
+        }
+
+        h1 {
+            margin: 0 0 7px;
+            font-size: 26px;
+        }
+
+        h2 {
+            font-size: 19px;
+            margin: 0 0 15px;
+        }
+
+        .muted {
+            color: #697894;
+        }
+
+        nav {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+
+        button {
+            cursor: pointer;
+            border: 1px solid #cfdaea;
+            border-radius: 9px;
+            padding: 10px 15px;
+            background: white;
+            color: #1b3158;
+            font-size: 14px;
+        }
+
+        button.primary,
+        button.active {
+            background: #223e72;
+            color: white;
+            border-color: #223e72;
+        }
+
+        button:disabled {
+            opacity: .4;
+            cursor: not-allowed;
+        }
+
+        input,
+        select {
+            padding: 11px;
+            border: 1px solid #cbd5e4;
+            border-radius: 9px;
+            font: inherit;
+            width: 100%;
+            min-width: 0;
+        }
+
+        label {
+            display: grid;
+            gap: 5px;
+            color: #62718b;
+            font-size: 13px;
+        }
+
+        .form {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .message {
+            padding: 12px 15px;
+            border-radius: 10px;
+            background: #e7f0fe;
+            margin: 14px 0;
+            white-space: pre-wrap;
+        }
+
+        .message.error {
+            background: #ffe9e9;
+            color: #a02222;
+        }
+
+        .tablewrap {
+            overflow: auto;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            min-width: 600px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            border-bottom: 1px solid #e8edf4;
+            padding: 13px 10px;
+            font-size: 14px;
+        }
+
+        th {
+            color: #687997;
+            font-weight: 500;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .row > * {
+            flex: 1;
+        }
+
+        small {
+            color: #697894;
+        }
+
+        /* Giao diện khi chưa đăng nhập */
+        body:has(#portal.hidden) {
+            background: #edf0f3;
+            background-image: radial-gradient(
+                ellipse at 50% 20%,
+                #ffffff 0%,
+                transparent 65%
+            );
+        }
+
+        body:has(#portal.hidden) > header,
+        body:has(#portal.hidden) main > h1,
+        body:has(#portal.hidden) main > p.muted {
+            display: none;
+        }
+
+        body:has(#portal.hidden) main {
+            min-height: 100vh;
+            min-height: 100svh;
+            max-width: none;
+            margin: 0;
+            padding: 32px 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Thẻ đăng nhập */
+        #auth {
+            width: 100%;
+            max-width: 400px;
+            margin: 0;
+            padding: 36px 32px 28px;
+            border: 1px solid #ffffff;
+            border-radius: 28px;
+            background: #ffffff;
+            box-shadow:
+                0 18px 48px #22344d18,
+                0 4px 12px #22344d0c;
+            text-align: center;
+        }
+
+        .auth-icons {
+            display: block;
+            width: 112px;
+            height: 58px;
+            margin: 0 auto 14px;
+            color: #43ace3;
+        }
+
+        .auth-brand {
+            margin: 0 0 8px;
+            color: #8392a4;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 2.5px;
+        }
+
+        #authTitle {
+            margin: 0 0 8px;
+            color: #234775;
+            font-size: 28px;
+            font-weight: 750;
+            letter-spacing: -.5px;
+        }
+
+        .auth-caption {
+            margin: 0 0 26px;
+            color: #8a97a8;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        #auth .form {
+            grid-template-columns: 1fr;
+            gap: 16px;
+        }
+
+        #registerFields:not(.hidden) {
+            margin-bottom: 16px;
+        }
+
+        #auth label {
+            gap: 7px;
+            color: #63758b;
+            font-size: 12px;
+            font-weight: 500;
+            text-align: left;
+        }
+
+        #auth input {
+            height: 46px;
+            padding: 0 13px;
+            border: 1.5px solid #8bceef;
+            border-radius: 7px;
+            background: #ffffff;
+            color: #233d5d;
+            font-size: 14px;
+            outline: none;
+            transition: border-color .2s, box-shadow .2s;
+        }
+
+        #auth input::placeholder {
+            color: #a1adba;
+        }
+
+        #auth input:focus {
+            border-color: #299cdb;
+            box-shadow: 0 0 0 4px #43ace319;
+        }
+
+        #auth .actions {
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 25px;
+        }
+
+        #submitAuth {
+            width: 100%;
+            min-height: 46px;
+            border: none;
+            border-radius: 7px;
+            background: linear-gradient(110deg, #61c4eb, #319cdf);
+            color: #ffffff;
+            box-shadow: 0 5px 13px #319cdf26;
+            font-size: 15px;
+            font-weight: 700;
+            transition: filter .2s;
+        }
+
+        #submitAuth:hover:not(:disabled) {
+            filter: brightness(.96);
+        }
+
+        #toggleAuth {
+            padding: 3px;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            color: #3098c9;
+            font-size: 12px;
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
+
+        .auth-back {
+            display: inline-block;
+            margin-top: 23px;
+            color: #8a97a8;
+            font-size: 12px;
+            text-decoration: none;
+        }
+
+        .auth-back:hover {
+            color: #234775;
+        }
+
+        #auth button:focus-visible,
+        .auth-back:focus-visible {
+            outline: 3px solid #8bceef;
+            outline-offset: 4px;
+        }
+
+        body:has(#portal.hidden) #message {
+            order: 1;
+            width: 100%;
+            max-width: 400px;
+            margin: 16px 0 0;
+            font-size: 13px;
+        }
+
+        @media (max-width: 650px) {
+            .form {
+                grid-template-columns: 1fr;
+            }
+
+            header {
+                padding: 18px;
+            }
+
+            main {
+                padding: 0 12px;
+            }
+        }
+
+        @media (max-width: 420px) {
+            #auth {
+                padding: 30px 24px 24px;
+                border-radius: 24px;
+            }
+        }
+    </style>
+<link rel="stylesheet" href="/social-assets/social.css">
+</head>
+
+<body>
+<header>
+    <div>
+        <strong>AURA FASHION</strong>
+        <div style="font-size:12px; color:#a5b9df">
+            TÀI KHOẢN AURA
+        </div>
+    </div>
+
+    <a href="/">← Về cửa hàng</a>
+</header>
+
+<main>
+    <h1>Tài khoản AURA FASHION</h1>
+
+    <p class="muted">
+        Quản lý đơn hàng và cập nhật thông tin cá nhân của bạn.
+    </p>
+
+    <div id="message" class="message hidden" role="status"></div>
+
+    <!-- Đăng nhập / đăng ký -->
+    <section id="auth" class="card">
+        <svg
+            class="auth-icons"
+            viewBox="0 0 112 58"
+            fill="none"
+            aria-hidden="true"
+        >
+            <circle
+                cx="29" cy="29" r="20"
+                stroke="currentColor" stroke-width="3"
+            />
+            <circle cx="29" cy="23" r="7" fill="currentColor" />
+            <path d="M17 40a12 12 0 0 1 24 0" fill="currentColor" />
+
+            <rect
+                x="66" y="24" width="28" height="25"
+                rx="4" fill="currentColor"
+            />
+            <path
+                d="M72 24v-7a8 8 0 0 1 16 0v7"
+                stroke="currentColor" stroke-width="3.5"
+            />
+            <circle cx="80" cy="34" r="3" fill="white" />
+            <path
+                d="M80 36v5"
+                stroke="white"
+                stroke-width="2.5"
+                stroke-linecap="round"
+            />
+        </svg>
+
+        <p class="auth-brand">AURA FASHION</p>
+        <h2 id="authTitle">Đăng nhập</h2>
+        <p class="auth-caption">Chào mừng bạn đến với AURA.</p>
+
+        <div id="registerFields" class="form hidden">
+            <label>
+                Họ và tên
+                <input
+                    id="regName"
+                    autocomplete="name"
+                    placeholder="Nhập họ và tên"
+                >
+            </label>
+
+            <label>
+                Số điện thoại
+                <input
+                    id="regPhone"
+                    type="tel"
+                    autocomplete="tel"
+                    placeholder="Nhập số điện thoại"
+                >
+            </label>
+        </div>
+
+        <div class="form">
+            <label>
+                Email
+                <input
+                    id="email"
+                    type="email"
+                    autocomplete="email"
+                    placeholder="Nhập địa chỉ email"
+                >
+            </label>
+
+            <label>
+                Mật khẩu
+                <input
+                    id="password"
+                    type="password"
+                    autocomplete="current-password"
+                    placeholder="Nhập mật khẩu"
+                >
+            </label>
+        </div>
+
+        <div class="actions">
+            <button type="button" class="primary" id="submitAuth">
+                Đăng nhập
+            </button>
+
+            <button type="button" id="toggleAuth">
+                Chưa có tài khoản? Đăng ký
+            </button>
+        </div>
+
+        <a class="auth-back" href="/">← Quay lại cửa hàng</a>
+    </section>
+
+    <!-- Khu vực Customer -->
+    <section id="portal" class="hidden">
+        <div class="card">
+            <div class="row">
+                <div>
+                    <h2 id="hello">Xin chào</h2>
+                    <small id="emailLabel"></small>
+                </div>
+
+                <div style="text-align:right">
+                    <button type="button" id="logout">Đăng xuất</button>
+                </div>
+            </div>
+
+            <nav>
+                <button type="button" data-tab="shop" class="active">
+                    Mua sắm
+                </button>
+                <button type="button" data-tab="orders">
+                    Đơn hàng của tôi
+                </button>
+                <button type="button" data-tab="profile">
+                    Hồ sơ
+                </button>
+            </nav>
+        </div>
+
+        <!-- Mua sắm -->
+        <div id="shop" class="card">
+            <h2>Sản phẩm đang bán</h2>
+
+            <p class="muted">
+                Chọn sản phẩm để xem biến thể.
+                Đơn mới sẽ thuộc tài khoản đang đăng nhập.
+            </p>
+
+            <div id="products">Đang tải...</div>
+
+            <div class="card">
+                <h2>Giỏ hàng</h2>
+                <div id="cart"></div>
+
+                <div class="form">
+                    <label>
+                        Điện thoại nhận hàng
+                        <input
+                            id="shippingPhone"
+                            type="tel"
+                            autocomplete="tel"
+                        >
+                    </label>
+
+                    <label>
+                        Địa chỉ giao hàng
+                        <input
+                            id="shippingAddress"
+                            autocomplete="street-address"
+                            placeholder="Số nhà, đường, quận/huyện, tỉnh/thành"
+                        >
+                    </label>
+                </div>
+
+                <div class="actions">
+                    <button type="button" class="primary" id="checkout">
+                        Đặt hàng thử nghiệm
+                    </button>
+                    <small>
+                        Chỉ tạo đơn chờ thanh toán,
+                        không tự động xác nhận thanh toán.
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Đơn hàng -->
+        <div id="orders" class="card hidden">
+            <h2>Đơn hàng của tôi</h2>
+            <div id="ordersList">Đang tải...</div>
+            <div id="orderDetail"></div>
+        </div>
+
+        <!-- Hồ sơ -->
+        <div id="profile" class="card hidden">
+            <h2>Thông tin cá nhân</h2>
+
+            <div class="form">
+                <label>
+                    Họ tên
+                    <input id="profileName" autocomplete="name">
+                </label>
+                <label>
+                    Điện thoại
+                    <input
+                        id="profilePhone"
+                        type="tel"
+                        autocomplete="tel"
+                    >
+                </label>
+            </div>
+
+            <div class="actions">
+                <button type="button" class="primary" id="saveProfile">
+                    Lưu hồ sơ
+                </button>
+            </div>
+        </div>
+    </section>
+</main>
+
+<script>
+    const $ = id => document.getElementById(id);
+
+    let me = null;
+    let csrf = '';
+    let register = false;
+    let cart = [];
+
+    const money = value =>
+        Number(value || 0).toLocaleString('vi-VN') + ' đ';
+
+    const esc = value =>
+        String(value ?? '').replace(/[&<>"']/g, character => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[character]));
+
+    function notice(message, error = false) {
+        $('message').textContent = message;
+        $('message').className = 'message' + (error ? ' error' : '');
+    }
+
+    async function api(url, method = 'GET', payload) {
+        const response = await fetch(url, {
+            method,
+            credentials: 'same-origin',
+            headers: {
+                ...(payload ? {
+                    'Content-Type': 'application/json'
+                } : {}),
+                ...(method !== 'GET' && csrf ? {
+                    'X-CSRF-Token': csrf
+                } : {})
+            },
+            body: payload ? JSON.stringify(payload) : undefined
+        });
+
+        let data;
+
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error('Máy chủ không trả JSON hợp lệ.');
+        }
+
+        if (!response.ok || !data.success) {
+            throw new Error(
+                data.error || data.message || `HTTP ${response.status}`
+            );
+        }
+
+        return data;
+    }
+
+    // Giữ tab được chọn từ menu trang chủ.
+    function openRequestedTab() {
+        const tab = new URLSearchParams(window.location.search).get('tab');
+
+        if (!['shop', 'orders', 'profile'].includes(tab)) return;
+
+        const button = document.querySelector(`[data-tab="${tab}"]`);
+        if (button) button.click();
+    }
+
+    // Kiểm tra phiên đăng nhập.
+    async function refreshMe() {
+        try {
+            const data = await api('/api/auth/me');
+
+            if (['ADMIN', 'STAFF'].includes(data.user?.role)) { window.location.replace(data.user.role === 'STAFF' ? '/staff/orders' : '/admin/dashboard'); return; }
+
+            if (data.user?.role !== 'CUSTOMER') {
+                throw new Error('Tài khoản không có quyền truy cập.');
+            }
+
+            me = data.user;
+            csrf = data.csrf_token;
+
+            $('auth').classList.add('hidden');
+            $('portal').classList.remove('hidden');
+
+            $('hello').textContent = 'Xin chào, ' + me.full_name;
+            $('emailLabel').textContent = me.email;
+            $('profileName').value = me.full_name;
+            $('profilePhone').value = me.phone || '';
+            $('shippingPhone').value = me.phone || '';
+
+            loadProducts();
+            openRequestedTab();
+
+            return true;
+        } catch {
+            me = null;
+            csrf = '';
+
+            $('auth').classList.remove('hidden');
+            $('portal').classList.add('hidden');
+
+            return false;
+        }
+    }
+
+    // Chuyển giữa đăng nhập và đăng ký.
+    $('toggleAuth').onclick = () => {
+        register = !register;
+
+        $('registerFields').classList.toggle('hidden', !register);
+
+        $('authTitle').textContent = register
+            ? 'Tạo tài khoản'
+            : 'Đăng nhập';
+
+        $('submitAuth').textContent = register
+            ? 'Đăng ký'
+            : 'Đăng nhập';
+
+        $('toggleAuth').textContent = register
+            ? 'Đã có tài khoản? Đăng nhập'
+            : 'Chưa có tài khoản? Đăng ký';
+
+        $('password').autocomplete = register
+            ? 'new-password'
+            : 'current-password';
+    };
+
+    // Đăng nhập / đăng ký.
+    $('submitAuth').onclick = async () => {
+        const button = $('submitAuth');
+
+        if (button.disabled) return;
+        button.disabled = true;
+
+        try {
+            const email = $('email').value.trim();
+            const password = $('password').value;
+
+            if (register) {
+                await api('/api/auth/register', 'POST', {
+                    email,
+                    password,
+                    full_name: $('regName').value.trim(),
+                    phone: $('regPhone').value.trim()
+                });
+
+                notice('Đăng ký thành công. Bạn có thể đăng nhập.');
+                $('toggleAuth').click();
+                return;
+            }
+
+            const data = await api('/api/auth/login', 'POST', {
+                email,
+                password
+            });
+
+            if (['ADMIN', 'STAFF'].includes(data.user?.role)) { window.location.replace(data.user.role === 'STAFF' ? '/staff/orders' : '/admin/dashboard'); return; }
+
+            if (data.user?.role !== 'CUSTOMER') {
+                throw new Error('Tài khoản không có quyền truy cập.');
+            }
+
+            if (await refreshMe()) {
+                notice('Đăng nhập thành công');
+            } else {
+                notice(
+                    'Không tải được phiên đăng nhập. Vui lòng thử lại.',
+                    true
+                );
+            }
+        } catch (error) {
+            notice(error.message, true);
+        } finally {
+            button.disabled = false;
+        }
+    };
+
+    // Đăng xuất.
+    $('logout').onclick = async () => {
+        try {
+            await api('/api/auth/logout', 'POST', {});
+
+            me = null;
+            csrf = '';
+            cart = [];
+
+            renderCart();
+            $('password').value = '';
+
+            $('portal').classList.add('hidden');
+            $('auth').classList.remove('hidden');
+
+            notice('Đã đăng xuất');
+        } catch (error) {
+            notice(error.message, true);
+        }
+    };
+
+    // Chuyển tab Customer.
+    document.querySelectorAll('[data-tab]').forEach(button => {
+        button.onclick = () => {
+            const tab = button.dataset.tab;
+
+            document.querySelectorAll('[data-tab]').forEach(item => {
+                item.classList.toggle('active', item === button);
+            });
+
+            ['shop', 'orders', 'profile'].forEach(id => {
+                $(id).classList.toggle('hidden', id !== tab);
+            });
+
+            if (tab === 'orders') loadOrders();
+        };
+    });
+
+    // Danh sách sản phẩm.
+    async function loadProducts() {
+        try {
+            const data = await api('/api/products');
+
+            $('products').innerHTML = `
+                <div class="tablewrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Sản phẩm</th>
+                                <th>Giá</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.products.map(product => `
+                                <tr>
+                                    <td>${esc(product.name)}</td>
+                                    <td>
+                                        ${money(
+                                            product.discount_price
+                                            || product.price
+                                        )}
+                                    </td>
+                                    <td>
+                                        <button
+                                            type="button"
+                                            data-product="${Number(product.id)}"
+                                        >
+                                            Chọn size/màu
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div id="variantPicker"></div>
+            `;
+
+            document.querySelectorAll('[data-product]').forEach(button => {
+                button.onclick = () =>
+                    pickProduct(Number(button.dataset.product));
+            });
+        } catch (error) {
+            notice(error.message, true);
+        }
+    }
+
+    // Chọn size và màu.
+    async function pickProduct(id) {
+        try {
+            const data = await api('/api/products/' + id);
+            const product = data.product;
+            const variants = product.variants || [];
+
+            if (!variants.length) {
+                $('variantPicker').textContent =
+                    'Sản phẩm này chưa có biến thể khả dụng.';
+                return;
+            }
+
+            $('variantPicker').innerHTML = `
+                <div class="card">
+                    <h2>${esc(product.name)}</h2>
+
+                    ${variants.map(variant => `
+                        <div class="row" style="margin:10px 0">
+                            <span>
+                                ${esc(variant.color)} /
+                                ${esc(variant.size)} —
+                                ${esc(variant.sku)} —
+                                còn ${Number(variant.stock_quantity)}
+                            </span>
+                            <button
+                                type="button"
+                                data-variant="${Number(variant.id)}"
+                                ${variant.stock_quantity < 1 ? 'disabled' : ''}
+                            >
+                                Thêm vào giỏ
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            document.querySelectorAll('[data-variant]').forEach(button => {
+                button.onclick = () => {
+                    const variant = variants.find(
+                        item => item.id === Number(button.dataset.variant)
+                    );
+
+                    const existing = cart.find(
+                        item => item.variant_id === variant.id
+                    );
+
+                    if (existing) {
+                        if (existing.quantity >= variant.stock_quantity) {
+                            notice('Không đủ tồn kho', true);
+                            return;
+                        }
+
+                        existing.quantity++;
+                    } else {
+                        cart.push({
+                            variant_id: variant.id,
+                            quantity: 1,
+                            name: product.name + ' '
+                                + variant.color + '/' + variant.size
+                        });
+                    }
+
+                    renderCart();
+                };
+            });
+        } catch (error) {
+            notice(error.message, true);
+        }
+    }
+
+    // Hiển thị giỏ hàng.
+    function renderCart() {
+        $('cart').innerHTML = cart.length
+            ? cart.map((item, index) => `
+                <div class="row" style="margin-bottom:9px">
+                    <span>
+                        ${esc(item.name)} — SL ${item.quantity}
+                    </span>
+                    <button type="button" data-remove="${index}">
+                        Bỏ
+                    </button>
+                </div>
+            `).join('')
+            : 'Giỏ hàng trống';
+
+        document.querySelectorAll('[data-remove]').forEach(button => {
+            button.onclick = () => {
+                cart.splice(Number(button.dataset.remove), 1);
+                renderCart();
+            };
+        });
+    }
+
+    // Đặt hàng.
+    $('checkout').onclick = async () => {
+        if (!cart.length) {
+            notice('Giỏ hàng đang trống', true);
+            return;
+        }
+
+        if (!confirm(
+            'Tạo một đơn hàng thử nghiệm? Thao tác này sẽ trừ kho.'
+        )) {
+            return;
+        }
+
+        const button = $('checkout');
+        button.disabled = true;
+
+        try {
+            const data = await api('/api/customer/checkout', 'POST', {
+                phone: $('shippingPhone').value,
+                address: $('shippingAddress').value,
+                items: cart.map(({ variant_id, quantity }) => ({
+                    variant_id,
+                    quantity
+                }))
+            });
+
+            cart = [];
+            renderCart();
+
+            notice(
+                'Đã tạo đơn ' + data.order_code
+                + ' — ' + money(data.total_amount)
+                + '; trạng thái PENDING_PAYMENT'
+            );
+
+            loadProducts();
+        } catch (error) {
+            notice(error.message, true);
+        } finally {
+            button.disabled = false;
+        }
+    };
+
+    // Lịch sử đơn hàng.
+    async function loadOrders() {
+        try {
+            const data = await api('/api/customer/orders');
+
+            $('ordersList').innerHTML = data.orders.length
+                ? `
+                    <div class="tablewrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Mã đơn</th>
+                                    <th>Ngày</th>
+                                    <th>Số tiền</th>
+                                    <th>Trạng thái</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.orders.map(order => `
+                                    <tr>
+                                        <td>${esc(order.order_code)}</td>
+                                        <td>${esc(order.created_at)}</td>
+                                        <td>${money(order.total_amount)}</td>
+                                        <td>${esc(order.status)}</td>
+                                        <td>
+                                            <button
+                                                type="button"
+                                                data-order="${Number(order.id)}"
+                                            >
+                                                Chi tiết
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `
+                : 'Chưa có đơn hàng gắn với tài khoản này.';
+
+            document.querySelectorAll('[data-order]').forEach(button => {
+                button.onclick = () =>
+                    showOrder(Number(button.dataset.order));
+            });
+        } catch (error) {
+            notice(error.message, true);
+        }
+    }
+
+    // Chi tiết đơn hàng.
+    async function showOrder(id) {
+        try {
+            const data = await api('/api/customer/orders/' + id);
+
+            $('orderDetail').innerHTML = `
+                <div class="card">
+                    <h2>${esc(data.order.order_code)}</h2>
+
+                    <p>Trạng thái: ${esc(data.order.status)}</p>
+                    <p>Giao đến: ${esc(data.order.customer_address)}</p>
+
+                    <h3>Sản phẩm</h3>
+
+                    ${data.items.map(item => `
+                        <p>
+                            ${esc(item.name)} —
+                            ${esc(item.color)}/${esc(item.size)}
+                            × ${Number(item.quantity)} —
+                            ${money(item.subtotal)}
+                        </p>
+                    `).join('')}
+
+                    <h3>Lịch sử trạng thái</h3>
+
+                    ${data.history.map(item => `
+                        <p>
+                            ${esc(item.old_status)} →
+                            ${esc(item.new_status)} ·
+                            ${esc(item.changed_at)}
+                        </p>
+                    `).join('')}
+                </div>
+            `;
+        } catch (error) {
+            notice(error.message, true);
+        }
+    }
+
+    // Cập nhật hồ sơ.
+    $('saveProfile').onclick = async () => {
+        try {
+            await api('/api/customer/profile', 'PATCH', {
+                full_name: $('profileName').value,
+                phone: $('profilePhone').value
+            });
+
+            notice('Đã lưu hồ sơ');
+            await refreshMe();
+        } catch (error) {
+            notice(error.message, true);
+        }
+    };
+
+    // Khởi tạo.
+    renderCart();
+    refreshMe();
+</script>
+<script src="/social-assets/social.js" defer></script>
+</body>
+</html>

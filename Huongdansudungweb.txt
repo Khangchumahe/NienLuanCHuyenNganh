@@ -1,0 +1,522 @@
+HƯỚNG DẪN CHẠY VÀ SỬ DỤNG WEBSITE AURA FASHION
+================================================
+Dành cho Windows và Visual Studio Code (VS Code).
+
+
+1. CHUẨN BỊ
+-----------
+
+- Cài Python 3.10 trở lên.
+- Cài Visual Studio Code.
+- Khi cài Python, chọn Add Python to PATH nếu có.
+- Giải nén project vào một thư mục trên máy.
+- Giữ nguyên database/store.db để giữ tài khoản và dữ liệu.
+
+Cấu trúc chính của project:
+
+    app.py
+    admin_dashboard.py
+    admin_orders.py
+    admin_products.py
+    admin_variants.py
+    customer_portal.py
+    create_admin.py
+    create_staff.py
+    staff.py
+    database/
+    services/
+    static/
+    templates/
+
+Lưu ý:
+- File giao diện khách hàng là templates/customer_portal.html.
+- File customer_portal.py là backend, không dán HTML vào file này.
+- staff.py là script cập nhật role STAFF, được đổi tên
+  từ upgrade_staff.py.
+
+
+2. MỞ PROJECT TRONG VS CODE
+--------------------------
+
+- Mở Visual Studio Code.
+- Chọn File > Open Folder.
+- Chọn thư mục chứa app.py.
+- Chọn Terminal > New Terminal.
+
+Các lệnh bên dưới phải chạy tại thư mục chứa app.py.
+
+
+3. CÀI ĐẶT LẦN ĐẦU
+------------------
+
+Trong Terminal PowerShell, chạy lần lượt:
+
+    py -m venv .venv
+
+    .\.venv\Scripts\python.exe -m pip install flask
+
+Nếu máy không nhận lệnh py nhưng đã cài Python, thử:
+
+    python -m venv .venv
+
+Không cần kích hoạt môi trường vì các lệnh dùng trực tiếp
+Python trong .venv.
+
+Chỉ cần tạo môi trường và cài thư viện ở lần thiết lập đầu tiên.
+
+
+4. KHỞI ĐỘNG WEBSITE
+-------------------
+
+Chạy:
+
+    .\.venv\Scripts\python.exe app.py
+
+Khi Terminal hiện:
+
+    Running on http://127.0.0.1:5000
+
+Mở Chrome hoặc Edge và truy cập:
+
+    http://127.0.0.1:5000
+
+Trang đăng nhập:
+
+    http://127.0.0.1:5000/customer
+
+Lưu ý:
+- Giữ Terminal đang chạy trong suốt thời gian sử dụng website.
+- Dùng HTTP với cấu hình local mặc định của project.
+- Chạy bằng app.py.
+- Live Server không chạy được backend Python Flask.
+
+
+5. TÀI KHOẢN THỬ NGHIỆM
+-----------------------
+
+ADMIN:
+    Email: admin@aurafashion.com
+    Mật khẩu: 12345678
+    Quyền: ADMIN
+
+CUSTOMER:
+    Email: customer2@example.com
+    Mật khẩu: 12345678
+    Quyền: CUSTOMER
+
+STAFF:
+    Email: staff@aurafashion.com
+    Mật khẩu mẫu: 12345678
+    Quyền: STAFF
+
+Lưu ý:
+- Admin và Customer là tài khoản trong database project đã gửi.
+- Staff chỉ tồn tại sau khi bạn tạo bằng create_staff.py.
+- Nếu đã đặt mật khẩu khác, dùng mật khẩu thực tế bạn đã đặt.
+- Nếu xóa hoặc thay database, tài khoản có thể không còn tồn tại.
+
+
+6. ĐĂNG NHẬP VÀ SỬ DỤNG ADMIN
+-----------------------------
+
+Truy cập:
+
+    http://127.0.0.1:5000/customer
+
+Nhập:
+    Email: admin@aurafashion.com
+    Mật khẩu: 12345678
+
+Nhấn Đăng nhập.
+
+Kết quả đúng:
+- Tự chuyển đến /admin/dashboard.
+- Hiện các mục Tổng quan, Đơn hàng, Sản phẩm & kho.
+
+TỔNG QUAN:
+- Xem tổng số sản phẩm.
+- Xem tổng số đơn hàng.
+- Xem tổng giá trị các đơn đã thanh toán.
+- Xem số đơn chờ thanh toán.
+
+Sau khi cập nhật bản dashboard có biểu đồ:
+- Biểu đồ cột hiển thị doanh thu 7 ngày gần nhất.
+- Biểu đồ tròn hiển thị số đơn theo trạng thái.
+- Nhấn Xem số liệu theo ngày để xem bảng chi tiết.
+- Di chuột lên cột để xem giá trị chính xác.
+- Nhấn Làm mới để tải lại dữ liệu.
+
+Cách tính doanh thu:
+- Tính các đơn có trạng thái PAID, SHIPPING hoặc DELIVERED.
+- Không tính đơn chờ thanh toán hoặc đã hủy.
+- Biểu đồ 7 ngày phân nhóm theo ngày tạo đơn, giờ Việt Nam.
+- Ô Doanh thu toàn bộ tính toàn bộ thời gian nên có thể
+  khác tổng trên biểu đồ 7 ngày.
+- Nếu chưa có doanh thu trong kỳ, biểu đồ hiển thị 0.
+
+ĐƠN HÀNG:
+- Mở mục Đơn hàng.
+- Chọn trạng thái và nhấn Lọc nếu cần.
+- Nhấn Chi tiết để xem thông tin khách hàng, sản phẩm
+  và lịch sử trạng thái.
+
+Các bước chuyển trạng thái:
+- PAID -> SHIPPING.
+- SHIPPING -> DELIVERED.
+- PENDING_PAYMENT -> CANCELLED nếu thanh toán vẫn PENDING.
+
+SẢN PHẨM & KHO:
+- Xem danh sách sản phẩm.
+- Nhấn Thêm sản phẩm để tạo sản phẩm mới.
+- Điền tên, slug, ID danh mục và giá.
+- ID danh mục phải tồn tại trong bảng categories.
+- Slug dùng chữ thường, số và dấu gạch ngang.
+- Nhấn Lưu sản phẩm.
+
+Sau khi tạo sản phẩm:
+- Nhấn Size / Màu / Kho.
+- Nhập SKU, màu, size và số lượng tồn.
+- Nhấn Thêm biến thể.
+
+Các thao tác khác:
+- Nhấn Sửa để cập nhật sản phẩm.
+- Nhấn Ẩn hoặc Hiện để thay đổi trạng thái bán.
+- Nhấn Cập nhật kho để nhập số lượng tồn MỚI.
+- Số lượng kho nhập vào là số thay thế, không phải số cộng thêm.
+
+ĐĂNG XUẤT:
+- Nhấn Đăng xuất trên trang quản lý.
+- Nếu dùng giao diện cũ chưa có nút này, về trang chủ,
+  mở menu tài khoản và chọn Đăng xuất.
+
+
+7. ĐĂNG NHẬP VÀ SỬ DỤNG CUSTOMER
+--------------------------------
+
+Đăng xuất tài khoản hiện tại hoặc dùng profile trình duyệt riêng.
+
+Truy cập:
+
+    http://127.0.0.1:5000/customer
+
+Nhập:
+    Email: customer2@example.com
+    Mật khẩu: 12345678
+
+Nhấn Đăng nhập.
+
+Kết quả đúng:
+- Hiện lời chào khách hàng.
+- Có các tab Mua sắm, Đơn hàng của tôi và Hồ sơ.
+
+ĐĂNG KÝ TÀI KHOẢN MỚI:
+- Nhấn Chưa có tài khoản? Đăng ký.
+- Điền họ tên, số điện thoại, email và mật khẩu.
+- Mật khẩu có ít nhất 8 ký tự.
+- Nhấn Đăng ký.
+- Sau khi đăng ký thành công, đăng nhập bằng tài khoản vừa tạo.
+- Đăng ký trên web chỉ tạo tài khoản CUSTOMER.
+
+MUA SẮM:
+- Mở tab Mua sắm.
+- Nhấn Chọn size/màu tại sản phẩm muốn mua.
+- Chọn biến thể còn hàng.
+- Nhấn Thêm vào giỏ.
+- Nhấn Bỏ nếu muốn xóa một dòng sản phẩm khỏi giỏ.
+
+ĐẶT HÀNG THỬ NGHIỆM:
+- Điền số điện thoại và địa chỉ giao hàng.
+- Nhấn Đặt hàng thử nghiệm.
+- Xác nhận tạo đơn.
+- Đơn được tạo với trạng thái PENDING_PAYMENT.
+- Thao tác này trừ tồn kho, chưa tự xác nhận thanh toán.
+
+XEM ĐƠN HÀNG:
+- Mở tab Đơn hàng của tôi.
+- Nhấn Chi tiết để xem sản phẩm, địa chỉ giao hàng
+  và lịch sử trạng thái.
+- Chỉ xem được đơn đã liên kết với tài khoản đang đăng nhập.
+- Đơn khách vãng lai cũ có thể không xuất hiện tại đây.
+
+CẬP NHẬT HỒ SƠ:
+- Mở tab Hồ sơ.
+- Sửa họ tên hoặc số điện thoại.
+- Nhấn Lưu hồ sơ.
+
+ĐĂNG XUẤT:
+- Nhấn Đăng xuất trong khu vực tài khoản Customer.
+
+
+8. CẬP NHẬT ROLE VÀ TẠO TÀI KHOẢN STAFF
+---------------------------------------
+
+Nếu đã cập nhật và tạo Staff thành công, bỏ qua mục này.
+
+BƯỚC 1: CẬP NHẬT ROLE STAFF
+
+- Dừng Flask bằng Ctrl + C.
+- Đặt staff.py cùng thư mục với app.py.
+- Chạy:
+
+    .\.venv\Scripts\python.exe staff.py
+
+Script cập nhật backend, giao diện và cấu trúc role trong database.
+
+Script tự tạo thư mục backup_staff_... để lưu code và database
+trước khi cập nhật.
+
+Không cần chạy lại staff.py mỗi lần mở website.
+
+BƯỚC 2: TẠO TÀI KHOẢN STAFF
+
+Chạy:
+
+    .\.venv\Scripts\python.exe create_staff.py
+
+Nhập thông tin mẫu:
+
+    Email: staff@aurafashion.com
+    Họ tên: Nguyen Van C
+    Mật khẩu: 12345678
+
+Quyền STAFF được script tự gán.
+
+Khi nhập mật khẩu, Terminal không hiện ký tự.
+Cứ nhập mật khẩu rồi nhấn Enter.
+
+Tài khoản chỉ tồn tại sau khi script báo tạo thành công.
+
+Nếu email đã được đăng ký:
+- Script không tự chuyển quyền của tài khoản đó.
+- Dùng email mới nếu muốn tạo thêm tài khoản Staff.
+
+
+9. ĐĂNG NHẬP VÀ SỬ DỤNG STAFF
+-----------------------------
+
+Khởi động website:
+
+    .\.venv\Scripts\python.exe app.py
+
+Đăng xuất tài khoản hiện tại hoặc dùng profile trình duyệt riêng.
+
+Truy cập:
+
+    http://127.0.0.1:5000/customer
+
+Nhập:
+    Email: staff@aurafashion.com
+    Mật khẩu: 12345678
+
+Nhấn Đăng nhập.
+
+Kết quả đúng:
+- Tự chuyển đến /staff/orders.
+- Có mục Đơn hàng và Sản phẩm & kho.
+- Không có mục Tổng quan/Dashboard.
+
+CHỨC NĂNG STAFF:
+- Xem, thêm, sửa và ẩn/hiện sản phẩm.
+- Tạo biến thể size/màu.
+- Cập nhật tồn kho.
+- Xem chi tiết đơn hàng.
+- Cập nhật trạng thái đơn theo luồng hệ thống.
+
+Thao tác quản lý giống phần hướng dẫn Admin ở mục 6.
+
+GIỚI HẠN:
+- Không được truy cập dashboard.
+- Không được truy cập API thống kê của Admin.
+- Nếu mở /admin/dashboard và nhận lỗi 403,
+  đây là kết quả đúng theo phân quyền.
+
+ĐĂNG XUẤT:
+- Nhấn Đăng xuất trên trang quản lý.
+
+
+10. SỬ DỤNG TRANG CỬA HÀNG CHÍNH
+--------------------------------
+
+Truy cập:
+
+    http://127.0.0.1:5000
+
+- Xem và tìm kiếm sản phẩm.
+- Mở chi tiết để xem thông tin và biến thể.
+- Chọn size/màu rồi thêm vào giỏ hàng.
+- Dùng menu tài khoản để đăng nhập hoặc vào khu vực tương ứng.
+
+CHATBOT:
+- Mở nút tư vấn trên trang cửa hàng.
+- Nhập nhu cầu tìm sản phẩm.
+- Có thể nhập chiều cao, cân nặng hoặc phong cách.
+- Xem các sản phẩm được gợi ý.
+- Mở RAG Trace nếu muốn xem thông tin truy xuất.
+
+Lưu ý: chatbot hiện dùng tìm kiếm từ khóa và câu trả lời theo mẫu,
+chưa kết nối LLM để tư vấn tự do.
+
+THANH TOÁN MÔ PHỎNG:
+- Luồng đặt hàng từ giỏ hàng trang chủ có giao diện Sandbox.
+- Có thể thử Thanh toán thành công hoặc Hủy giao dịch.
+- Đây là mô phỏng, không thực hiện thanh toán tiền thật.
+- Nút Đặt hàng thử nghiệm trong trang Customer chỉ tạo
+  đơn chờ thanh toán, chưa mở luồng Sandbox này.
+
+Lưu ý về bản project đã kiểm tra:
+- Luồng giỏ hàng trang chủ có lỗi xử lý đơn nhiều dòng.
+- Callback thanh toán có lỗi khi gửi hủy lặp.
+- Các bản sửa đăng nhập, Staff và dashboard không sửa hai lỗi này.
+- Khi demo các luồng này, cần dùng bản đã khắc phục các lỗi tương ứng.
+
+
+11. KIỂM TRA CÁC TÀI KHOẢN ĐỘC LẬP
+----------------------------------
+
+Có thể dùng:
+- Cửa sổ thường cho Admin.
+- Cửa sổ ẩn danh cho Customer.
+- Trình duyệt khác hoặc profile riêng cho Staff.
+
+Lưu ý:
+- Các tab cùng profile dùng chung phiên đăng nhập.
+- Hai cửa sổ ẩn danh cùng trình duyệt thường chia sẻ phiên.
+- Muốn đổi tài khoản trong cùng profile, đăng xuất trước.
+- Dùng thống nhất địa chỉ 127.0.0.1 trong khi kiểm tra.
+- Không chuyển qua lại giữa localhost và 127.0.0.1
+  vì trình duyệt lưu cookie riêng cho hai địa chỉ.
+
+
+12. SAU KHI CHỈNH SỬA CODE
+-------------------------
+
+- Trong VS Code, nhấn Ctrl + S để lưu file.
+- Trên trình duyệt, nhấn Ctrl + F5 để tải lại giao diện.
+- Nếu sửa Python mà thay đổi chưa có hiệu lực:
+  dừng Flask bằng Ctrl + C rồi chạy lại app.py.
+
+Khi cập nhật dashboard có biểu đồ, cần lưu đủ:
+- admin_dashboard.py
+- templates/admin_dashboard.html
+
+Không cần chạy lại staff.py để áp dụng thay đổi biểu đồ.
+
+
+13. DỪNG VÀ MỞ LẠI WEBSITE
+-------------------------
+
+ĐỂ DỪNG:
+- Chọn Terminal đang chạy Flask.
+- Nhấn Ctrl + C.
+
+ĐỂ MỞ LẠI:
+- Mở thư mục project trong VS Code.
+- Chọn Terminal > New Terminal.
+- Chạy:
+
+    .\.venv\Scripts\python.exe app.py
+
+- Mở:
+
+    http://127.0.0.1:5000/customer
+
+Không cần tạo lại .venv, chạy staff.py hoặc tạo lại tài khoản
+mỗi lần mở website.
+
+
+14. THƯ MỤC BACKUP_STAFF
+-----------------------
+
+Thư mục backup_staff_... được staff.py tạo trước khi cập nhật.
+
+Nó chứa bản sao:
+- Các file code được thay đổi.
+- Database trước khi thêm role Staff.
+
+Phần số trong tên thư mục là thời điểm tạo bản sao lưu.
+
+Website chạy bằng code và database bên ngoài thư mục backup.
+
+Có thể:
+- Giữ lại để dự phòng.
+- Chuyển ra ngoài project cho gọn.
+- Xóa sau khi đã kiểm tra bản mới hoạt động ổn,
+  nhưng sẽ mất bản sao lưu đó.
+
+Không ghi đè database hiện tại bằng bản sao cũ nếu chưa xác định
+rõ dữ liệu cần khôi phục, vì có thể mất thay đổi phát sinh sau đó.
+
+
+15. KHẮC PHỤC LỖI THƯỜNG GẶP
+---------------------------
+
+KHÔNG TÌM THẤY APP.PY:
+- Kiểm tra Terminal đang ở thư mục chứa app.py.
+- Mở lại đúng thư mục bằng File > Open Folder.
+
+KHÔNG NHẬN LỆNH PY:
+- Thử lệnh python.
+- Kiểm tra đã cài Python và cấu hình PATH.
+
+NO MODULE NAMED FLASK:
+- Chạy:
+
+    .\.venv\Scripts\python.exe -m pip install flask
+
+- Sau đó khởi động lại app.py bằng Python trong .venv.
+
+TRÌNH DUYỆT KHÔNG KẾT NỐI ĐƯỢC:
+- Kiểm tra Flask còn chạy trong Terminal.
+- Kiểm tra Terminal có báo lỗi không.
+- Truy cập đúng http://127.0.0.1:5000.
+
+PORT 5000 ĐANG ĐƯỢC SỬ DỤNG:
+- Dừng bản Flask đang chạy ở Terminal khác bằng Ctrl + C.
+- Khởi động lại website.
+
+ADMIN VẪN BỊ CHẶN Ở TRANG CUSTOMER:
+- Kiểm tra đã cập nhật đúng templates/customer_portal.html.
+- Nhấn Ctrl + S, sau đó Ctrl + F5.
+- Nếu cần, dừng Flask và chạy lại.
+
+STAFF KHÔNG ĐĂNG NHẬP ĐƯỢC:
+- Kiểm tra đã chạy staff.py cập nhật role.
+- Kiểm tra create_staff.py đã báo tạo tài khoản thành công.
+- Dùng đúng email và mật khẩu đã nhập khi tạo.
+- Nếu dùng email mẫu, email là staff@aurafashion.com.
+
+STAFF KHÔNG TỰ CHUYỂN TRANG:
+- Kiểm tra customer_portal.html đã được cập nhật cho STAFF.
+- Khởi động lại Flask và nhấn Ctrl + F5.
+- Đăng xuất rồi đăng nhập lại.
+
+CHECK CONSTRAINT FAILED KHI TẠO STAFF:
+- Bảng users có thể chưa cho phép role STAFF.
+- Kiểm tra thông báo khi chạy staff.py.
+- Không xóa database để xử lý lỗi này.
+
+NO SUCH TABLE: CUSTOMER_ORDER_LINKS:
+- Dừng Flask.
+- Chạy:
+
+    .\.venv\Scripts\python.exe customer_migrate.py
+
+- Khởi động lại app.py.
+
+DASHBOARD KHÔNG HIỆN BIỂU ĐỒ:
+- Kiểm tra đã lưu đủ hai file:
+  admin_dashboard.py và templates/admin_dashboard.html.
+- Khởi động lại Flask.
+- Đăng nhập bằng Admin.
+- Nhấn Ctrl + F5.
+- Nếu doanh thu 7 ngày bằng 0, kiểm tra có đơn trong kỳ
+  mang trạng thái PAID, SHIPPING hoặc DELIVERED hay chưa.
+
+STAFF NHẬN LỖI 403 KHI VÀO DASHBOARD:
+- Đây là hành vi đúng theo phân quyền.
+- Staff sử dụng /staff/orders hoặc /staff/products.
+
+LỖI KHÁC:
+- Xem thông báo trong Terminal.
+- Nhấn F12 > Console để xem lỗi giao diện.
+- Gửi nội dung lỗi cụ thể khi cần hỗ trợ.

@@ -1,0 +1,47 @@
+<svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="520"
+        height="600"
+        viewBox="0 0 520 600"
+    >
+        <title>Đầm Nữ Dáng Suông Xanh Navy</title>
+
+        <rect width="520" height="600" fill="#f1eee9"/>
+
+        <circle
+            cx="260" cy="265" r="180"
+            fill="#e8e3db"
+        />
+
+        <ellipse
+            cx="260" cy="445" rx="100" ry="13"
+            fill="#29364b" opacity=".08"
+        />
+
+        <g
+            fill="#354e73"
+            stroke="#29364b"
+            stroke-opacity=".15"
+            stroke-width="2"
+            stroke-linejoin="round"
+        >
+            <path d="M225 125Q260 148 295 125L315 210L365 420H155L205 210Z"/>
+        </g>
+
+        <text
+            x="260" y="510"
+            text-anchor="middle"
+            font-family="Arial,sans-serif"
+            font-size="22"
+            font-weight="700"
+            fill="#273b58"
+        >AURA FASHION</text>
+
+        <text
+            x="260" y="545"
+            text-anchor="middle"
+            font-family="Arial,sans-serif"
+            font-size="17"
+            fill="#78818e"
+        >Đầm &amp; Váy Nữ · 14</text>
+    </svg>
