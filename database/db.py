@@ -325,19 +325,29 @@ def sp_create_order_and_deduct_stock(customer_info, cart_items, payment_method="
     finally:
         conn.close()
 
-def sp_process_payment_webhook(transaction_code, status="SUCCESS"):
+def sp_process_payment_webhook(transaction_code, status="SUCCESS", *, customer_user_id):
     """
     Thủ tục xử lý Webhook khi cổng thanh toán ảo trả về kết quả (SUCCESS / CANCELLED / FAILED)
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("BEGIN TRANSACTION;")
-        
-        cursor.execute("SELECT order_id, status FROM payments WHERE transaction_code = ?", (transaction_code,))
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute("""
+            SELECT p.order_id, p.status, o.status AS order_status
+            FROM payments p
+            JOIN orders o ON o.id = p.order_id
+            JOIN customer_order_links l ON l.order_id = p.order_id
+            WHERE p.transaction_code = ? AND l.user_id = ?
+        """, (transaction_code, customer_user_id))
         payment = cursor.fetchone()
         if not payment:
-            raise ValueError(f"Không tìm thấy giao dịch {transaction_code}!")
+            return {'success': False, 'error_code': 'PAYMENT_NOT_FOUND', 'error': 'Không tìm thấy giao dịch của bạn.'}
+
+        if payment['status'] == status:
+            return {'success': True, 'order_id': payment['order_id'], 'new_status': payment['order_status']}
+        if payment['status'] != 'PENDING' or payment['order_status'] != 'PENDING_PAYMENT':
+            return {'success': False, 'error_code': 'PAYMENT_ALREADY_PROCESSED', 'error': 'Giao dịch đã được xử lý.'}
 
         order_id = payment['order_id']
 
@@ -356,8 +366,8 @@ def sp_process_payment_webhook(transaction_code, status="SUCCESS"):
             WHERE id = ?
         """, (new_order_status, order_id))
 
-        # Nếu giao dịch bị hủy, hoàn lại số lượng tồn kho
-        if status == 'CANCELLED':
+        # Hoàn tồn kho một lần khi giao dịch không thành công.
+        if status in ('CANCELLED', 'FAILED'):
             cursor.execute("SELECT variant_id, quantity FROM order_items WHERE order_id = ?", (order_id,))
             items = cursor.fetchall()
             for it in items:

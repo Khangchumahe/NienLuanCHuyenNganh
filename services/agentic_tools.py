@@ -15,7 +15,8 @@ import unicodedata
 from typing import Dict, Any, List, Optional
 from database.db import get_db_connection
 from services.rag_rules import (
-    available_variants, fold, matching_sizes, matching_variants, normalize_size, requested_fabrics, valid_measurements,
+    available_variants, fold, matching_sizes, matching_variants, nearest_size, normalize_size,
+    requested_fabrics, size_guide_rows, valid_measurements,
 )
 
 # ---------------------------------------------------------------- tiện ích
@@ -431,8 +432,16 @@ def db_recommend_size(height_cm: float, weight_kg: float, gender: str = "",
         if product is None:
             return {"recommended_size": None, "note": "Bạn muốn đối chiếu số đo với mẫu nào trong cửa hàng ạ?"}
         fits = matching_sizes(product["size_guide"], height_cm, weight_kg)
+        approximate = False
         if not fits:
-            return {"recommended_size": None, "note": f"Mình chưa xác nhận được size theo bảng của {product['name']}."}
+            by_height = matching_sizes(product["size_guide"], height_cm, None)
+            by_weight = matching_sizes(product["size_guide"], None, weight_kg)
+            closest = nearest_size(size_guide_rows(product["size_guide"]), height_cm, weight_kg) if by_height and by_weight else None
+            if not closest:
+                return {"status": "NO_MATCH", "recommended_size": None,
+                        "note": f"Mình chưa xác nhận được size theo bảng của {product['name']}."}
+            fits = [closest]
+            approximate = True
         variants = conn.execute(
             "SELECT size, color, stock_quantity FROM product_variants WHERE product_id = ?", (product["id"],)
         ).fetchall()
@@ -442,15 +451,23 @@ def db_recommend_size(height_cm: float, weight_kg: float, gender: str = "",
     recommended = in_stock[0] if in_stock else fits[0]
     sizes = ", ".join(fits)
     color_context = f" với màu {color}" if color else ""
+    fit_label = "Size tham khảo" if approximate else "Size phù hợp"
     availability = (
-        f"Size phù hợp còn hàng{color_context}: {', '.join(in_stock)}."
-        if in_stock else f"Hiện chưa có size phù hợp còn hàng{color_context}."
+        f"{fit_label} còn hàng{color_context}: {', '.join(in_stock)}."
+        if in_stock else f"{fit_label} hiện hết hàng hoặc chưa có{color_context}."
     )
+    note = f"Theo bảng size của {product['name']}, size khớp số đo là {sizes}."
+    if approximate:
+        note = (
+            f"Với {height_cm:g} cm và {weight_kg:g} kg, bạn có thể thử size {recommended} của {product['name']}. "
+            f"Chiều cao khớp {', '.join(by_height)}, cân nặng khớp {', '.join(by_weight)}."
+        )
     return {
+        "status": "MEASUREMENT_CONFLICT" if approximate else "OK",
         "recommended_size": recommended,
         "matching_sizes": fits,
         "sizes_in_stock": in_stock,
-        "note": f"Theo bảng size của {product['name']}, size khớp số đo là {sizes}. {availability}",
+        "note": f"{note} {availability}",
     }
 
 

@@ -15,6 +15,7 @@ except ImportError:
 
 from services.agentic_tools import (
     _detect_category_hint,
+    _detect_gender,
     db_check_variant_stock,
     db_lookup_order_for_customer,
     db_recommend_size,
@@ -24,6 +25,7 @@ from services.agentic_tools import (
     db_suggest_outfit,
 )
 from services.rag_engine import RAGEngine
+from services.size_chart import recommend_shirt_size
 from services.chat_support import SENSITIVE_CARD, identity_answer, store_answer
 from services.rag_rules import (
     ORDER_CODE, STOCK_QUESTION, fold, format_price, matching_variants, query_constraints,
@@ -34,7 +36,7 @@ from services.rag_rules import (
 logger = logging.getLogger(__name__)
 STORE_TOOLS = {
     fn.__name__: fn for fn in (
-        db_search_products, db_check_variant_stock, db_recommend_size, db_suggest_outfit,
+        db_search_products, db_check_variant_stock, db_recommend_size, db_suggest_outfit, recommend_shirt_size,
     )
 }
 ROUTING_INSTRUCTION = """Bạn phân loại yêu cầu của khách cửa hàng thời trang AURA.
@@ -43,6 +45,7 @@ Chọn một công cụ và chỉ dùng các tiêu chí có căn cứ từ lời
   phong cách hoặc dịp mặc. Giữ mọi ràng buộc về ngân sách, màu, size và số đo.
 - db_check_variant_stock chỉ khi khách hỏi tồn của một mẫu có tên đủ rõ.
 - db_recommend_size khi khách hỏi size của một mẫu cụ thể và đã cho cả hai số đo.
+- recommend_shirt_size khi khách hỏi size áo tham khảo và chưa chọn mẫu cụ thể.
 - db_suggest_outfit khi khách nêu tên mẫu cần phối. Nếu khách chỉ nêu dịp mặc, tìm sản phẩm.
 - ask_clarification khi thiếu loại đồ, dịp mặc, mẫu cần kiểm tra hoặc số đo.
 - out_of_scope cho câu hỏi ngoài thời trang và mua sắm tại AURA.
@@ -73,6 +76,7 @@ OTHER_GOODS = re.compile(
     r"my pham|nuoc hoa|giay|sneaker|tui xach|dong ho|quan ca phe|quan an|nha hang)\b"
 )
 SIZE_QUESTION = re.compile(r"\b(?:size|kich co|mac co gi)\b")
+PRODUCT_REFERENCE = re.compile(r"\b(?:dang xem|dang chon) (?:mau )?(.+)")
 CLOTHING = re.compile(
     r"\b(?:quan ao|trang phuc|thoi trang|mac gi|phoi do|phoi voi|phoi cung|"
     r"cotton|linen|denim|polyester|vai|chat lieu|streetwear|casual|cong so|du tiec|di bien|"
@@ -119,7 +123,7 @@ def _render_store_result(name, result, *, stock_question=False):
             variant = rows[0]
             return f"Còn {variant['stock_quantity']} chiếc màu {variant['color']}, size {variant['size']} nhé!"
         return f"Còn hàng nhé!\n{summary}"
-    if name == "db_recommend_size":
+    if name in ("db_recommend_size", "recommend_shirt_size"):
         return result["note"]
     if name == "db_search_products":
         if result["status"] == "CLARIFY":
@@ -145,17 +149,23 @@ def _history_queries(history):
 
 def _effective_query(query, history):
     """Carry the last product request into short follow-up questions."""
-    if _detect_category_hint(query) or not history:
+    gender_reply = fold(query).strip(" .!?") in ("nam", "nu", "ao nam", "ao nu")
+    product_reference = PRODUCT_REFERENCE.search(fold(query))
+    if not history or (_detect_category_hint(query) and not (gender_reply or product_reference)):
         return query
     constraints = query_constraints(query)
-    continuation = SIZE_QUESTION.search(fold(query)) or any(
+    size_question = bool(SIZE_QUESTION.search(fold(query)))
+    has_measurement = constraints["height"] is not None or constraints["weight"] is not None
+    continuation = size_question or gender_reply or product_reference or any(
         value is not None and value != "" for value in constraints.values()
     )
     if not continuation and not re.search(r"\b(?:mẫu đó|cái đó|mẫu này|còn hàng|phối với|rẻ hơn)\b", query.casefold()):
         return query
     for previous in reversed(history):
         previous_measurements = query_constraints(previous)
-        if _detect_category_hint(previous) or SIZE_QUESTION.search(fold(query)) and any(
+        if (not product_reference and _detect_category_hint(previous)) or (
+            size_question or gender_reply or has_measurement or product_reference
+        ) and any(
             previous_measurements[key] is not None for key in ("height", "weight")
         ):
             return f"{query}. {previous}"
@@ -188,7 +198,9 @@ def _verified_arguments(name, args, query, effective_query):
                 arguments[field] = values[field]
     if name == "db_recommend_size" and values["color"]:
         arguments["color"] = values["color"]
-    if name in ("db_recommend_size", "db_search_products"):
+    if name == "recommend_shirt_size":
+        arguments["gender"] = _detect_gender(query) or _detect_gender(effective_query) or ""
+    if name in ("db_recommend_size", "db_search_products", "recommend_shirt_size"):
         # Size and stock claims are based on measurements present in the conversation.
         for source, target in (("height", "height_cm"), ("weight", "weight_kg")):
             arguments.pop(target, None)
@@ -202,7 +214,8 @@ def _verified_arguments(name, args, query, effective_query):
 def _tool_reply(query, mode, name, args):
     result = STORE_TOOLS[name](**args)
     intent = {"db_search_products": "PRODUCT_SEARCH", "db_check_variant_stock": "STOCK_CHECK",
-              "db_recommend_size": "SIZE_ADVICE", "db_suggest_outfit": "OUTFIT"}[name]
+              "db_recommend_size": "SIZE_ADVICE", "recommend_shirt_size": "SIZE_ADVICE",
+              "db_suggest_outfit": "OUTFIT"}[name]
     stock_question = bool(STOCK_QUESTION.search(query))
     reply = _reply(query, _render_store_result(name, result, stock_question=stock_question), mode, [
         {"name": name, "args": args, "result": result},
@@ -271,7 +284,8 @@ class AgenticRAGEngine:
             except Exception as error:
                 logger.warning("Gemini client initialization failed (%s)", type(error).__name__)
 
-    def chat_with_agent(self, user_query, conversation_history=None, customer_user_id=None, recent_product_ids=()):
+    def chat_with_agent(self, user_query, conversation_history=None, customer_user_id=None, recent_product_ids=(),
+                        product_id=None):
         normalized = " ".join(re.findall(r"[^\W_]+", fold(user_query)))
         if SENSITIVE_CARD.search(fold(user_query)):
             return _reply("[Đã ẩn thông tin thẻ]", "Bạn đừng gửi số thẻ qua chat. Hãy dùng bước thanh toán trên website.",
@@ -354,19 +368,53 @@ class AgenticRAGEngine:
         if re.search(r"\b(?:lam tu|chat lieu|thanh phan vai)\b.*\b(?:phai khong|dung khong)\b", normalized):
             return _reply(user_query, "Mình chưa xác nhận được chất liệu bạn nêu. Bạn xem mục chất liệu trên trang sản phẩm hoặc gửi tên đầy đủ của mẫu nhé.",
                           "local", intent="CLARIFY")
-        if not category and not STOCK_QUESTION.search(user_query) and (
-            SIZE_QUESTION.search(normalized) or measurements["height"] is not None or measurements["weight"] is not None
+        engine = None
+        height, weight = measurements["height"], measurements["weight"]
+        reference = PRODUCT_REFERENCE.search(normalized)
+        asks_for_size = SIZE_QUESTION.search(normalized) or height is not None and (
+            normalized in ("ao nam", "ao nu") or reference
+        )
+        asks_for_products = re.search(r"\b(?:tim|mua|goi y|cho xem)\b", normalized)
+        if not STOCK_QUESTION.search(user_query) and (
+            not category and (asks_for_size or height is not None or weight is not None)
+            or asks_for_size and not asks_for_products and (category in ("áo", "sơ mi") or product_id or reference)
         ):
-            height, weight = measurements["height"], measurements["weight"]
-            if height is not None and weight is not None:
-                answer = f"Với {height:g} cm và {weight:g} kg, bạn đang xem mẫu nào? Mình sẽ đối chiếu bảng size của mẫu đó."
-            elif height is not None or weight is not None:
-                known = f"chiều cao {height:g} cm" if height is not None else f"cân nặng {weight:g} kg"
-                missing = "cân nặng" if height is not None else "chiều cao"
-                answer = f"Mình đã có {known}. Bạn cho mình thêm {missing} và tên mẫu đang xem nhé."
-            else:
-                answer = "Bạn cho mình chiều cao, cân nặng và mẫu đang xem để chọn size nhé."
-            return _reply(user_query, answer, "local", intent="SIZE_ADVICE", outcome="CLARIFY")
+            engine = RAGEngine()
+            names = engine.named_products(effective_query)
+            if not names and reference:
+                terms = set(engine._tokenize(reference.group(1)))
+                names = {
+                    doc["product_name"] for doc in engine.knowledge_base
+                    if terms and terms <= set(engine._tokenize(doc["product_name"]))
+                }
+            if not names and product_id and not reference and (
+                not _detect_category_hint(user_query) or RECENT_REFERENCE.search(normalized)
+            ):
+                names = {doc["product_name"] for doc in engine.knowledge_base if doc["product_id"] == product_id}
+            if names:
+                if height is None or weight is None:
+                    return _reply(user_query, "Bạn cho mình chiều cao và cân nặng để tra bảng size của mẫu này nhé.",
+                                  "local", intent="SIZE_ADVICE", outcome="CLARIFY")
+                args = {"height_cm": height, "weight_kg": weight, "color": measurements["color"]}
+                if len(names) == 1:
+                    return _tool_reply(user_query, "local", "db_recommend_size", {**args, "product_name": next(iter(names))})
+                if len(names) <= 3:
+                    trace = []
+                    for name in sorted(names):
+                        arguments = {**args, "product_name": name}
+                        trace.append({"name": "db_recommend_size", "args": arguments,
+                                      "result": db_recommend_size(**arguments)})
+                    sizes = {call["result"]["recommended_size"] for call in trace}
+                    if len(sizes) == 1 and None not in sizes:
+                        return _reply(user_query, f"Với {height:g} cm và {weight:g} kg, bạn có thể thử size {sizes.pop()} "
+                                      "ở các mẫu khớp tên. Mở đúng mẫu để xem màu và tồn kho.", "local", trace,
+                                      intent="SIZE_ADVICE", outcome="CLARIFY")
+                return _reply(user_query, "Có nhiều mẫu khớp tên này. Bạn mở trang của mẫu đang xem để mình tra đúng bảng size nhé.",
+                              "local", intent="SIZE_ADVICE", outcome="CLARIFY")
+            return _tool_reply(user_query, "local", "recommend_shirt_size", {
+                "height_cm": height, "weight_kg": weight,
+                "gender": _detect_gender(user_query) or _detect_gender(effective_query) or "",
+            })
         if self.client:
             try:
                 answer = self._route(user_query, effective_query, history)
@@ -377,7 +425,7 @@ class AgenticRAGEngine:
                 logger.warning("Gemini routing failed (%s, status %s)", type(error).__name__, code)
                 if code in (401, 403, 404):
                     self.client = None
-        engine = RAGEngine()
+        engine = engine or RAGEngine()
         named_products = engine.named_products(effective_query)
         if len(named_products) == 1:
             product_name = next(iter(named_products))

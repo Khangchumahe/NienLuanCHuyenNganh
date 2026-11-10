@@ -7,6 +7,7 @@ from services.agentic_rag import (
 )
 from services.rag_rules import matching_sizes, query_constraints
 from services.rag_engine import RAGEngine
+from services.size_chart import recommend_shirt_size
 
 
 class TestRAGQuality(unittest.TestCase):
@@ -181,6 +182,64 @@ class TestRAGQuality(unittest.TestCase):
                 self.assertEqual(result["rag_trace"]["intent"], "SIZE_ADVICE")
                 self.assertIn(measurements, result["answer"])
                 self.assertEqual(result["recommended_products"], [])
+
+    def test_reference_size_chart_requires_both_measurements_to_match(self):
+        for height, weight, gender, expected in (
+            (170, 70, "nam", "L"),
+            (158, 55, "nữ", "M"),
+            (163, 55, "nữ", "L"),
+            (150, 44, "nam", "XS"),
+            (150, 45, "nam", None),
+            (178, 80, "nam", "XL"),
+            (185, 90, "nam", "2XL"),
+            (190, 98, "nam", "3XL"),
+            (194, 115, "nam", "4XL"),
+            (195, 115, "nam", "5XL"),
+            (195, 135, "nam", None),
+            (195, 136, "nam", "6XL"),
+            (173, 70, "nữ", "XL"),
+            (178, 80, "nữ", "2XL"),
+            (185, 90, "nữ", "3XL"),
+            (188, 105, "nữ", "4XL"),
+            (189, 110, "nữ", "5XL"),
+            (190, 120, "nữ", None),
+            (190, 121, "nữ", "6XL"),
+        ):
+            with self.subTest(height=height, weight=weight, gender=gender):
+                self.assertEqual(recommend_shirt_size(height, weight, gender)["recommended_size"], expected)
+        conflict = recommend_shirt_size(170, 60, "nam")
+        self.assertEqual(conflict["status"], "MEASUREMENT_CONFLICT")
+        self.assertEqual(conflict["height_sizes"], ["L"])
+        self.assertEqual(conflict["weight_sizes"], ["M"])
+
+    def test_size_tool_uses_gender_from_a_followup_without_gemini(self):
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}):
+            agent = AgenticRAGEngine()
+        first = "Mình cao 1m70, nặng 70kg, mặc size nào?"
+        self.assertEqual(agent.chat_with_agent(first)["rag_trace"]["outcome"], "CLARIFY")
+        result = agent.chat_with_agent("Nam", [{"role": "user", "content": first}])
+        self.assertIn("Size L", result["answer"])
+        self.assertEqual(result["rag_trace"]["tool_calls_executed"][0]["name"], "recommend_shirt_size")
+
+    def test_size_advice_carries_measurements_into_a_product_reference(self):
+        first = "tôi cao 1m7 nặng 56 kí thì nên mặc size gì"
+        self.engine.knowledge_base[0]["product_name"] = "Áo Sơ Mi Nam Oxford Slimfit Tay Dài"
+        result = {"status": "MEASUREMENT_CONFLICT", "recommended_size": "M", "note": "Bạn có thể thử size M."}
+        recommend = Mock(return_value=result)
+        with (
+            patch.dict("os.environ", {"GEMINI_API_KEY": ""}),
+            patch("services.agentic_rag.RAGEngine", wraps=RAGEngine) as engine,
+            patch.dict("services.agentic_rag.STORE_TOOLS", {"db_recommend_size": recommend}),
+        ):
+            engine.return_value = self.engine
+            reply = AgenticRAGEngine().chat_with_agent(
+                "t đang xem mẫu Áo Sơ Mi Nam Oxford", [{"role": "user", "content": first}]
+            )
+        recommend.assert_called_once_with(
+            product_name="Áo Sơ Mi Nam Oxford Slimfit Tay Dài", height_cm=170, weight_kg=56, color=""
+        )
+        self.assertIn("size M", reply["answer"])
+        self.assertEqual(reply["recommended_products"], [])
 
     def test_store_information_does_not_use_sample_brand_values(self):
         with patch.dict("os.environ", {"GEMINI_API_KEY": "", "AURA_SUPPORT_PHONE": ""}):

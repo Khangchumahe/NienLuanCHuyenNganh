@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ product.name }} · AURA Fashion</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body data-product-id="{{ product.id }}" data-cart-on-storefront>
+  <main class="container">
+    <p style="margin: 24px 0;"><a href="/">← Về cửa hàng AURA</a></p>
+    <article class="product-detail-body" style="margin-bottom: 96px;">
+      {% if product.image_url %}
+        <img class="product-detail-image" src="{{ product.image_url }}" alt="{{ product.name }}">
+      {% endif %}
+      <div>
+        <p>{{ product.category_name }}</p>
+        <h1>{{ product.name }}</h1>
+        <p><strong>{{ '{:,.0f}'.format(product.discount_price if product.discount_price is not none else product.price).replace(',', '.') }} đ</strong></p>
+        {% if product.description %}<p>{{ product.description }}</p>{% endif %}
+        {% if product.material %}<p>Chất liệu {{ product.material }}</p>{% endif %}
+        {% if product.size_guide %}
+          <h2>Bảng size của mẫu</h2>
+          <p>{{ product.size_guide }}</p>
+        {% endif %}
+        <p style="margin-top: 16px;"><a href="/?product={{ product.id }}">Chọn màu và size để thêm vào giỏ</a></p>
+      </div>
+    </article>
+  </main>
+  {% include 'stylist_chat.html' %}
+</body>
+</html>

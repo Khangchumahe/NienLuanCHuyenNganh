@@ -157,3 +157,11 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 -- SQLite đã tạo UNIQUE index tự động cho email.
+
+CREATE TABLE IF NOT EXISTS customer_order_links (
+    order_id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_customer_order_user ON customer_order_links(user_id);

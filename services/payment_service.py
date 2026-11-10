@@ -244,7 +244,7 @@ def create_zalopay_order_payload(order_code, transaction_code, amount, customer_
 # =====================================================================
 # XỬ LÝ THANH TOÁN BẰNG THẺ TÍN DỤNG MẪU HOẶC VÍ ĐIỆN TỬ
 # =====================================================================
-def process_card_or_wallet_payment(transaction_code, payment_type, card_data=None, wallet_data=None, otp=""):
+def process_card_or_wallet_payment(transaction_code, payment_type, card_data=None, wallet_data=None, otp="", *, customer_user_id):
     """
     Xác thực và xử lý thanh toán qua thẻ tín dụng/ghi nợ mẫu hoặc ví ZaloPay/MoMo:
     - Kiểm tra số thẻ, hạn thẻ, CVV và OTP 3D-Secure
@@ -272,7 +272,7 @@ def process_card_or_wallet_payment(transaction_code, payment_type, card_data=Non
         }
 
     # 3. Kích hoạt Stored Procedure & Trigger cập nhật Database
-    result = sp_process_payment_webhook(transaction_code, "SUCCESS")
+    result = sp_process_payment_webhook(transaction_code, "SUCCESS", customer_user_id=customer_user_id)
     if result["success"]:
         return {
             "success": True,
@@ -285,14 +285,14 @@ def process_card_or_wallet_payment(transaction_code, payment_type, card_data=Non
     else:
         return {
             "success": False,
-            "error_code": "DATABASE_ERROR",
+            "error_code": result.get("error_code", "DATABASE_ERROR"),
             "message": result.get("error", "Lỗi cập nhật trạng thái cơ sở dữ liệu")
         }
 
-def process_mock_payment_callback(transaction_code, status="SUCCESS"):
+def process_mock_payment_callback(transaction_code, status="SUCCESS", *, customer_user_id):
     """
     Xử lý phản hồi từ cổng thanh toán ảo:
     Gọi Stored Procedure để cập nhật trạng thái đơn hàng và kích hoạt Trigger
     """
-    result = sp_process_payment_webhook(transaction_code, status)
+    result = sp_process_payment_webhook(transaction_code, status, customer_user_id=customer_user_id)
     return result

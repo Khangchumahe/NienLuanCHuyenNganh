@@ -9,7 +9,7 @@ from time import monotonic
 import json
 
 from dotenv import load_dotenv
-from flask import Flask, Response, render_template, request, jsonify, session, g
+from flask import Flask, Response, abort, render_template, request, jsonify, session, g
 from functools import wraps
 import os
 import secrets
@@ -85,6 +85,17 @@ def require_csrf(view):
     return wrapped
 
 
+def require_customer_payment(view):
+    @wraps(view)
+    @require_login
+    @require_csrf
+    def wrapped(*args, **kwargs):
+        if g.user['role'] != 'CUSTOMER':
+            return jsonify(success=False, error='Bạn cần dùng tài khoản khách hàng để thanh toán.'), 403
+        return view(*args, **kwargs)
+    return wrapped
+
+
 @app.route('/api/auth/register', methods=['POST'])
 def api_register():
     data = request.get_json(silent=True)
@@ -146,7 +157,16 @@ def api_product_detail(product_id):
     return jsonify({'success': True, 'product': product})
 
 
+@app.get('/products/<int:product_id>')
+def product_page(product_id):
+    product = get_product_by_id(product_id)
+    if not product or not product['is_published']:
+        abort(404)
+    return render_template('product_detail.html', product=product)
+
+
 @app.route('/api/orders/checkout', methods=['POST'])
+@require_customer_payment
 def api_checkout():
     """API dat hang va lien ket voi Customer"""
     data = request.get_json(silent=True)
@@ -161,29 +181,12 @@ def api_checkout():
     if not isinstance(cart_items, list) or not cart_items:
         return jsonify(success=False, error='Gio hang dang trong!'), 400
 
-    # Lay Customer ID tu phien dang nhap
-    customer_user_id = None
-    session_user_id = session.get('user_id')
-
-    if session_user_id is not None:
-        conn = get_db_connection()
-        try:
-            user = conn.execute(
-                "SELECT id, role FROM users WHERE id = ?",
-                (session_user_id,)
-            ).fetchone()
-
-            if user and user['role'] == 'CUSTOMER':
-                customer_user_id = user['id']
-        finally:
-            conn.close()
-
     # Tao don, tru kho va lien ket Customer trong transaction
     result = sp_create_order_and_deduct_stock(
         customer_info,
         cart_items,
         payment_method,
-        customer_user_id=customer_user_id
+        customer_user_id=g.user['id']
     )
 
     if not result['success']:
@@ -224,47 +227,65 @@ def api_test_cards():
 
 
 @app.route('/api/payment/process-card', methods=['POST'])
+@require_customer_payment
 def api_process_card_payment():
     """API xác thực và xử lý thanh toán qua thẻ tín dụng/ATM hoặc ví ZaloPay kèm OTP 3D-Secure"""
-    data = request.get_json() or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='Cần gửi JSON hợp lệ.'), 400
     transaction_code = data.get('transaction_code')
     payment_type = data.get('payment_type', 'CREDIT_CARD')
     card_data = data.get('card_data')
     wallet_data = data.get('wallet_data')
-    otp = data.get('otp', '').strip()
+    otp = data.get('otp', '')
 
-    if not transaction_code:
+    if not isinstance(transaction_code, str) or not transaction_code.strip():
         return jsonify({'success': False, 'message': 'Thiếu mã giao dịch!'}), 400
+    if not isinstance(otp, str) or any(item is not None and not isinstance(item, dict) for item in (card_data, wallet_data)):
+        return jsonify(success=False, error='Dữ liệu xác thực thanh toán không hợp lệ.'), 400
+    if card_data and not isinstance(card_data.get('card_number', ''), str):
+        return jsonify(success=False, error='Số thẻ không hợp lệ.'), 400
 
     result = process_card_or_wallet_payment(
-        transaction_code=transaction_code,
+        transaction_code=transaction_code.strip(),
         payment_type=payment_type,
         card_data=card_data,
         wallet_data=wallet_data,
-        otp=otp
+        otp=otp.strip(),
+        customer_user_id=g.user['id'],
     )
 
     if result.get('success'):
         # Cập nhật lại kho cho RAG
         rag_service.sync_knowledge_base()
 
-    return jsonify(result)
+    return jsonify(result), _payment_http_status(result)
 
 
 @app.route('/api/payment/simulate-callback', methods=['POST'])
+@require_customer_payment
 def api_payment_callback():
     """API Webhook mô phỏng phản hồi từ cổng thanh toán ảo"""
-    data = request.get_json() or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='Cần gửi JSON hợp lệ.'), 400
     transaction_code = data.get('transaction_code')
     status = data.get('status', 'SUCCESS') # SUCCESS hoặc CANCELLED
 
-    if not transaction_code:
+    if not isinstance(transaction_code, str) or not transaction_code.strip():
         return jsonify({'success': False, 'error': 'Thiếu mã giao dịch!'}), 400
+    if status not in ('SUCCESS', 'CANCELLED', 'FAILED'):
+        return jsonify(success=False, error='Trạng thái thanh toán không hợp lệ.'), 400
 
-    result = process_mock_payment_callback(transaction_code, status)
+    result = process_mock_payment_callback(transaction_code.strip(), status, customer_user_id=g.user['id'])
     # Cập nhật lại kho cho RAG
-    rag_service.sync_knowledge_base()
-    return jsonify(result)
+    if result['success']:
+        rag_service.sync_knowledge_base()
+    return jsonify(result), _payment_http_status(result)
+
+
+def _payment_http_status(result):
+    return {'PAYMENT_NOT_FOUND': 404, 'PAYMENT_ALREADY_PROCESSED': 409}.get(result.get('error_code'), 200)
 
 from services.agentic_rag import AgenticRAGEngine
 
@@ -320,6 +341,9 @@ def api_ai_chat():
         product_id for product_id in recent_ids[:3]
         if type(product_id) is int and 0 < product_id < 2**63
     )) if isinstance(recent_ids, list) else []
+    product_id = data.get('product_id')
+    if type(product_id) is not int or not 0 < product_id < 2**63:
+        product_id = None
     user = current_user()
     customer_user_id = user['id'] if user and user['role'] == 'CUSTOMER' else None
 
@@ -327,7 +351,7 @@ def api_ai_chat():
         try:
             return {
                 'success': True,
-                'data': agentic_ai.chat_with_agent(message, history, customer_user_id, recent_ids),
+                'data': agentic_ai.chat_with_agent(message, history, customer_user_id, recent_ids, product_id),
             }
         except Exception:
             app.logger.exception('Chat processing failed')

@@ -1,0 +1,62 @@
+  <button id="chatbotLauncher" class="chatbot-launcher">
+    <i class="fa-solid fa-wand-magic-sparkles"></i>
+    <span>Chat với AURA Stylist</span>
+  </button>
+
+  <div id="chatbotWindow" class="chatbot-window">
+    <div class="chat-header">
+      <div class="chat-header-info">
+        <div class="ai-avatar"><i class="fa-solid fa-shirt" aria-hidden="true"></i></div>
+        <div class="chat-header-text">
+          <h4>AURA Stylist</h4>
+          <span class="ai-status"><span class="status-dot"></span> Tư vấn thời trang</span>
+        </div>
+      </div>
+      <div class="chat-header-actions">
+        <button id="btnOpenRagTraceHeader" class="btn-inspect-rag" title="Xem luồng RAG của câu trả lời gần nhất">
+          <i class="fa-solid fa-eye"></i> Kiểm tra RAG
+        </button>
+        <button id="btnCloseChat" class="btn-close-chat" aria-label="Thu gọn trò chuyện"><i class="fa-solid fa-chevron-down"></i></button>
+      </div>
+    </div>
+
+    <!-- Quick Prompt Chips -->
+    <div class="quick-prompts">
+      <div class="quick-prompt-chip" data-chat-prompt="Tư vấn chọn size áo sơ mi nam cho người cao 1m70 nặng 65kg">
+        👔 Áo sơ mi 1m70 65kg
+      </div>
+      <div class="quick-prompt-chip" data-chat-prompt="Tôi muốn tìm áo khoác gió chống nước đi phượt">
+        🧥 Áo khoác chống nước
+      </div>
+      <div class="quick-prompt-chip" data-chat-prompt="Tìm đầm nữ dự tiệc cưới sang trọng hack dáng">
+        👗 Đầm lụa dự tiệc cưới
+      </div>
+    </div>
+
+    <!-- Message Area -->
+    <div id="chatMessages" class="chat-messages" role="log" aria-label="Trò chuyện với AURA Stylist">
+      <div class="chat-message chat-message-bot">
+        <div class="chat-message-meta">AURA Stylist</div>
+        <div class="chat-bubble bubble-bot">Chào bạn! Bạn đang tìm mẫu nào? Mình có thể gợi ý đồ, chọn size hoặc kiểm tra còn hàng.</div>
+      </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="chat-input-area">
+      <input type="text" id="chatInput" class="chat-input" placeholder="Nhắn cho AURA Stylist…" aria-label="Nội dung tin nhắn">
+      <button id="btnSendChat" class="btn-send-chat" aria-label="Gửi tin nhắn">
+        <i class="fa-solid fa-paper-plane"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="ragTraceModal">
+    <div class="modal-card">
+      <div class="modal-header" style="background: var(--slate-900); color: white;">
+        <h3 style="color: #38bdf8;"><i class="fa-solid fa-magnifying-glass-chart"></i> RAG Inspector (Giải Thích Luồng AI)</h3>
+        <button class="btn-close-modal" aria-label="Đóng kiểm tra RAG" style="color: white;">&times;</button>
+      </div>
+      <div class="modal-body" id="ragTraceContent"></div>
+    </div>
+  </div>
+<script src="{{ url_for('static', filename='js/stylist-chat.js') }}" defer></script>

@@ -13,7 +13,7 @@ BUDGET = (
     rf"(?<!\w)(?:dưới|tối đa|không quá|ngân sách|tầm|<=?)\s*[:=]?\s*({MONEY})(?!\w|[.,]\d)"
     rf"|(?<![\w.,])({MONEY})\s*(?:trở xuống|đổ lại)\b"
 )
-SIZE_LABEL = r"(?:[2-5]XL|XXXL|XXL|XL|XS|S|M|L|FREE\s*SIZE|\d{2})"
+SIZE_LABEL = r"(?:[2-6]XL|XXXL|XXL|XL|XS|S|M|L|FREE\s*SIZE|\d{2})"
 ORDER_CODE = re.compile(r"\bORD-[A-Z0-9-]+\b", re.IGNORECASE)
 COLORS = r"xanh navy|xanh dương|xanh lá|xanh rêu|xanh nhạt|đen|trắng|xám|ghi|nâu|be|đỏ|hồng|tím|vàng|cam|kem|xanh"
 FABRICS = re.compile(r"\b(?:modal|cotton|linen|denim|polyester|viscose|tencel|rayon|nylon|spandex|lyocell|lụa|đũi)\b")
@@ -86,27 +86,52 @@ def valid_measurements(height, weight):
     )
 
 
-def matching_sizes(guide, height, weight):
-    """Read size rows shipped with the catalog, including weight-only guides."""
-    if height is None and weight is None or not valid_measurements(height, weight):
-        return []
+def size_guide_rows(guide):
     labels = re.compile(rf"\b(?:size\s+)?({SIZE_LABEL})\s*(?:\([^)]*\))?\s*:", re.IGNORECASE)
     guide = str(guide or "")
     rows = list(labels.finditer(guide))
-    matches = []
     for index, label in enumerate(rows):
         row = guide[label.end():rows[index + 1].start() if index + 1 < len(rows) else len(guide)]
         height_range = re.match(rf"\s*({HEIGHT}|\d{{3}})\s*[-–—]\s*({HEIGHT})", row, re.IGNORECASE)
         weight_range = re.search(r"(\d{2,3}(?:[.,]\d+)?)\s*[-–—]\s*(\d{2,3}(?:[.,]\d+)?)\s*kg\b", row, re.IGNORECASE)
-        comparisons = []
-        if height is not None and height_range:
-            comparisons.append(_height_cm(height_range.group(1)) <= height <= _height_cm(height_range.group(2)))
-        if weight is not None and weight_range:
-            low, high = (float(value.replace(",", ".")) for value in weight_range.groups())
-            comparisons.append(low <= weight <= high)
+        height_bounds = tuple(map(_height_cm, height_range.groups())) if height_range else None
+        weight_bounds = tuple(float(value.replace(",", ".")) for value in weight_range.groups()) if weight_range else None
+        yield normalize_size(label.group(1)), height_bounds, weight_bounds
+
+
+def matching_sizes(guide, height, weight):
+    """Read size rows shipped with the catalog, including weight-only guides."""
+    if height is None and weight is None or not valid_measurements(height, weight):
+        return []
+    matches = []
+    for size, height_bounds, weight_bounds in size_guide_rows(guide):
+        comparisons = [
+            bounds[0] <= value <= bounds[1]
+            for value, bounds in ((height, height_bounds), (weight, weight_bounds))
+            if value is not None and bounds is not None
+        ]
         if comparisons and all(comparisons):
-            matches.append(normalize_size(label.group(1)))
+            matches.append(size)
     return list(dict.fromkeys(matches))
+
+
+def nearest_size(rows, height, weight):
+    """Compare gaps as fractions of each row's range. A tied fit stays undecided."""
+    distances = {}
+    for size, height_bounds, weight_bounds in rows:
+        if not height_bounds or not weight_bounds:
+            continue
+        gaps = [
+            max(low - value, value - high, 0) / max(high - low, 1)
+            for value, (low, high) in ((height, height_bounds), (weight, weight_bounds))
+        ]
+        if min(gaps) == 0:
+            score = sum(gaps)
+            distances[size] = min(distances.get(size, score), score)
+    ranked = sorted(distances, key=distances.get)
+    if ranked and (len(ranked) == 1 or not math.isclose(distances[ranked[0]], distances[ranked[1]])):
+        return ranked[0]
+    return None
 
 
 def matching_variants(variants, sizes=(), color=""):
@@ -130,7 +155,7 @@ def stock_summary(variants):
     by_color = {}
     for variant in available_variants(variants):
         by_color.setdefault(variant["color"], set()).add(normalize_size(variant["size"]))
-    size_order = ("XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL")
+    size_order = ("XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL", "6XL")
     colors_by_sizes = {}
     for color, sizes in list(by_color.items())[:2]:
         ordered = sorted(sizes, key=lambda size: (size_order.index(size) if size in size_order else len(size_order), size))
