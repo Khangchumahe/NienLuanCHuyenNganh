@@ -3,10 +3,19 @@ Flask Application for Clothing Store
 Tích hợp: RAG AI Chatbot, Virtual Payment Simulator, SQL Database (Triggers & Stored Procedures)
 """
 
-from flask import Flask, render_template, request, jsonify, session, g
+from collections import OrderedDict
+from threading import Lock
+from time import monotonic
+import json
+
+from dotenv import load_dotenv
+from flask import Flask, Response, render_template, request, jsonify, session, g
 from functools import wraps
 import os
 import secrets
+
+load_dotenv()
+
 from database.db import (
     init_db, get_all_products, get_product_by_id, 
     sp_create_order_and_deduct_stock, get_db_stats,
@@ -132,7 +141,7 @@ def api_products():
 @app.route('/api/products/<int:product_id>', methods=['GET'])
 def api_product_detail(product_id):
     product = get_product_by_id(product_id)
-    if not product:
+    if not product or not product['is_published']:
         return jsonify({'success': False, 'message': 'Không tìm thấy sản phẩm'}), 404
     return jsonify({'success': True, 'product': product})
 
@@ -257,20 +266,84 @@ def api_payment_callback():
     rag_service.sync_knowledge_base()
     return jsonify(result)
 
+from services.agentic_rag import AgenticRAGEngine
+
+agentic_ai = AgenticRAGEngine()
+
+_chat_requests = OrderedDict()
+_chat_requests_lock = Lock()
+
+
+def _chat_rate_allowed(address):
+    now = monotonic()
+    with _chat_requests_lock:
+        while _chat_requests and next(iter(_chat_requests.values()))[0] <= now:
+            _chat_requests.popitem(last=False)
+        if address not in _chat_requests and len(_chat_requests) >= 4096:
+            return False
+        expires, count = _chat_requests.get(address, (now + 60, 0))
+        if count >= 20:
+            return False
+        _chat_requests[address] = (expires, count + 1)
+        return True
+
+
 @app.route('/api/ai/chat', methods=['POST'])
 def api_ai_chat():
-    """API Chatbot AI sử dụng RAG Engine"""
-    data = request.get_json() or {}
-    user_query = data.get('message', '').strip()
-    
-    if not user_query:
-        return jsonify({'success': False, 'error': 'Tin nhắn không được để trống'}), 400
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='Cần gửi JSON hợp lệ'), 400
+    message = data.get('message')
+    if not isinstance(message, str) or not message.strip():
+        return jsonify(success=False, error='Vui lòng nhập tin nhắn hợp lệ'), 400
+    message = message.strip()
+    if len(message) > 2000:
+        return jsonify(success=False, error='Tin nhắn tối đa 2.000 ký tự'), 400
+    if not _chat_rate_allowed(request.remote_addr):
+        return jsonify(success=False, error='Bạn gửi nhiều tin nhắn quá nhanh. Hãy thử lại sau ít phút.'), 429, {
+            'Retry-After': '60',
+        }
 
-    response_data = rag_service.generate_response(user_query)
-    return jsonify({
-        'success': True,
-        'data': response_data
-    })
+    history = data.get('conversation_history', [])
+    if not isinstance(history, list):
+        history = []
+    history = [
+        {'role': entry['role'], 'content': entry['content'].strip()[:2000]}
+        for entry in history[-12:]
+        if isinstance(entry, dict)
+        and entry.get('role') in ('user', 'assistant')
+        and isinstance(entry.get('content'), str)
+        and entry['content'].strip()
+    ]
+    recent_ids = data.get('recent_product_ids', [])
+    recent_ids = list(dict.fromkeys(
+        product_id for product_id in recent_ids[:3]
+        if type(product_id) is int and 0 < product_id < 2**63
+    )) if isinstance(recent_ids, list) else []
+    user = current_user()
+    customer_user_id = user['id'] if user and user['role'] == 'CUSTOMER' else None
+
+    def result():
+        try:
+            return {
+                'success': True,
+                'data': agentic_ai.chat_with_agent(message, history, customer_user_id, recent_ids),
+            }
+        except Exception:
+            app.logger.exception('Chat processing failed')
+            return {'success': False, 'error': 'Chưa thể kiểm tra dữ liệu cửa hàng. Bạn thử lại sau nhé.'}
+
+    if any(mime == 'application/x-ndjson' and quality > 0 for mime, quality in request.accept_mimetypes):
+        def events():
+            yield '{"event":"retrieving"}\n'
+            yield json.dumps({'event': 'answer', **result()}, ensure_ascii=False) + '\n'
+
+        return Response(events(), mimetype='application/x-ndjson', headers={
+            'Cache-Control': 'no-store',
+            'X-Accel-Buffering': 'no',
+        })
+    payload = result()
+    return jsonify(payload), 200 if payload['success'] else 503
 
 @app.route('/api/ai/sync-rag', methods=['POST'])
 @require_admin

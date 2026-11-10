@@ -379,6 +379,7 @@ def get_all_products(category_id=None, search=None):
     """Lấy danh sách sản phẩm kèm tổng số lượng tồn kho và các biến thể"""
     conn = get_db_connection()
     cursor = conn.cursor()
+    conn.execute("BEGIN")
     
     query = """
         SELECT p.*, c.name as category_name,
@@ -403,11 +404,18 @@ def get_all_products(category_id=None, search=None):
     cursor.execute(query, params)
     products = [dict(row) for row in cursor.fetchall()]
     
-    # Nạp kèm danh sách biến thể của từng sản phẩm
-    for prod in products:
-        cursor.execute("SELECT * FROM product_variants WHERE product_id = ?", (prod['id'],))
-        prod['variants'] = [dict(v) for v in cursor.fetchall()]
-        
+    by_id = {p["id"]: p for p in products}
+    for product in products:
+        product["variants"] = []
+    for row in conn.execute("""
+        SELECT v.* FROM product_variants v
+        JOIN products p ON p.id = v.product_id
+        WHERE p.is_published = 1 ORDER BY v.id
+    """):
+        product = by_id.get(row["product_id"])
+        if product is not None:
+            product["variants"].append(dict(row))
+
     conn.close()
     return products
 

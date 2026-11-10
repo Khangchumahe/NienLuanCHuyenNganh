@@ -7,13 +7,34 @@ Cơ chế hoạt động 4 bước chuẩn Kỹ thuật phần mềm:
 4. Generation: Sinh câu trả lời tư vấn thời trang và trả về Trace log phục vụ kiểm tra/bảo vệ đồ án.
 """
 
+from collections import Counter
 import math
 import re
+import unicodedata
 from database.db import get_all_products
+from services.agentic_tools import _detect_category_hint, _detect_gender, _expand_term_groups
+from services.rag_rules import (
+    HEIGHT, STOCK_QUESTION, WEIGHT, catalog_query, fold, matching_sizes, matching_variants,
+    normalize_size, query_constraints, recommendation_intro, requested_fabrics, selling_price,
+    stock_summary, valid_measurements,
+)
+
+
+STOP_WORDS = {
+    "tôi", "mình", "em", "anh", "chị", "bạn", "của", "và", "với", "thì",
+    "nên", "mua", "nào", "gì", "cho", "có", "không", "k", "ko", "shop",
+    "ạ", "nhé", "được", "tư", "vấn", "giúp", "muốn", "cần", "tìm", "xem",
+    "cao", "nặng", "kí", "kg", "cm", "m", "hơi", "rất", "quá", "lắm",
+    "thế", "sao", "đi", "lại", "đang", "đã", "sẽ", "là", "ở", "này", "đó",
+    "một", "vài", "cái", "chiếc", "bộ", "mẫu"
+}
+MIN_COSINE_MATCH_SCORE = 0.15
+MIN_COSINE_CLARIFY_SCORE = 0.1
 
 class RAGEngine:
     def __init__(self):
         self.knowledge_base = []
+        self.idf = {}
         self.sync_knowledge_base()
 
     def sync_knowledge_base(self):
@@ -25,10 +46,16 @@ class RAGEngine:
         chunks = []
         for p in products:
             variant_str = ", ".join([f"{v['color']} (Size {v['size']}: còn {v['stock_quantity']} cái)" for v in p['variants']])
+            price = selling_price(p)
+            weights = Counter()
+            for field, weight in ((p['name'], 3), (p['category_name'], 2), (p['material'], 1.5),
+                                  (p['style'], 1.5), (p['size_guide'], 1.2), (p['description'], 1)):
+                for token in self._tokenize(field):
+                    weights[token] += weight
             content = (
                 f"Sản phẩm: {p['name']}.\n"
                 f"Danh mục: {p['category_name']}.\n"
-                f"Giá bán: {p['discount_price']:,.0f} VNĐ (Giá gốc: {p['price']:,.0f} VNĐ).\n"
+                f"Giá bán: {price:,.0f} VNĐ (Giá gốc: {p['price']:,.0f} VNĐ).\n"
                 f"Chất liệu: {p['material']}.\n"
                 f"Phong cách & Dịp mặc: {p['style']}.\n"
                 f"Bảng tư vấn size (Chiều cao & Cân nặng): {p['size_guide']}.\n"
@@ -39,73 +66,120 @@ class RAGEngine:
                 'product_id': p['id'],
                 'product_name': p['name'],
                 'category': p['category_name'],
-                'price': p['discount_price'] or p['price'],
+                'price': price,
                 'image_url': p['image_url'],
+                'material': p['material'],
+                'style': p['style'],
+                'size_guide': p['size_guide'],
+                'variants': p['variants'],
                 'content': content,
-                'tokens': self._tokenize(content)
+                'tokens': weights
             })
+        frequency = Counter(token for chunk in chunks for token in chunk["tokens"])
+        self.idf = {token: 1 + math.log((len(chunks) + 1) / (count + 1)) for token, count in frequency.items()}
         self.knowledge_base = chunks
         return len(chunks)
 
-    def _tokenize(self, text):
-        """Tách từ ngữ tiếng Việt đơn giản và chuẩn hóa lowercase"""
-        cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
-        tokens = [t for t in cleaned.split() if len(t) > 1]
-        return tokens
+    @staticmethod
+    def _tokenize(text):
+        """Tách từ ngữ tiếng Việt chuẩn hóa NFC và lọc bỏ Stop Words"""
+        normalized = unicodedata.normalize("NFC", str(text or "")).casefold()
+        token_pattern = rf"(?<!\w)(?:{HEIGHT}|{WEIGHT}|size\s+[0-9a-z]+)(?!\w)|[^\W_]+"
+        return [
+            fold(token) for token in re.findall(token_pattern, normalized)
+            if len(token) > 1 and token not in STOP_WORDS
+        ]
 
     def _compute_cosine_similarity(self, query_tokens, doc_tokens):
-        """
-        Tính toán độ tương đồng Cosine Similarity giữa Vector truy vấn và Vector tài liệu
-        """
-        if not query_tokens or not doc_tokens:
+        query = Counter(query_tokens)
+        document = Counter(doc_tokens)
+        if not query or not document:
             return 0.0
-        
-        # Tạo tập hợp các từ vựng
-        vocab = set(query_tokens).union(set(doc_tokens))
-        
-        q_counts = {word: query_tokens.count(word) for word in vocab}
-        d_counts = {word: doc_tokens.count(word) for word in vocab}
-        
-        dot_product = sum(q_counts[w] * d_counts[w] for w in vocab)
-        q_magnitude = math.sqrt(sum(q_counts[w] ** 2 for w in vocab))
-        d_magnitude = math.sqrt(sum(d_counts[w] ** 2 for w in vocab))
-        
-        if q_magnitude == 0 or d_magnitude == 0:
-            return 0.0
-            
-        score = dot_product / (q_magnitude * d_magnitude)
-        
-        # Thưởng điểm ưu tiên nếu khớp chính xác các từ khóa chiều cao, cân nặng hoặc size
-        for token in query_tokens:
-            if re.match(r'^(1m\d+|size|\d+kg|s|m|l|xl)$', token):
-                if token in doc_tokens:
-                    score += 0.15
+        unseen = 1 + math.log(len(self.knowledge_base) + 1)
+        query_vector = {word: count * self.idf.get(word, unseen) for word, count in query.items()}
+        doc_vector = {word: count * self.idf.get(word, 1) for word, count in document.items()}
+        dot = sum(weight * doc_vector.get(word, 0) for word, weight in query_vector.items())
+        length = math.hypot(*query_vector.values()) * math.hypot(*doc_vector.values())
+        return round(dot / length, 4)
 
-        return min(round(score, 4), 1.0)
+    def retrieve(self, query, top_k=3, *, in_stock_only=True):
+        constraints = query_constraints(query)
+        clean_query = catalog_query(query)
+        query_tokens = self._tokenize(clean_query)
+        groups = _expand_term_groups(clean_query)
+        gender = _detect_gender(clean_query)
+        category_hint = _detect_category_hint(clean_query)
+        fabrics = requested_fabrics(clean_query)
+        height, weight = constraints["height"], constraints["weight"]
+        has_measurements = height is not None or weight is not None
+        if not valid_measurements(height, weight):
+            return []
 
-    def retrieve(self, query, top_k=3):
-        """
-        Bước 2: Retrieval (Trích xuất tài liệu tương quan nhất)
-        """
-        query_tokens = self._tokenize(query)
-        scored_docs = []
-        
+        named = self.named_products(query)
+        scored = []
         for doc in self.knowledge_base:
-            similarity = self._compute_cosine_similarity(query_tokens, doc['tokens'])
-            if similarity > 0.05:
-                scored_docs.append({
-                    'product_id': doc['product_id'],
-                    'product_name': doc['product_name'],
-                    'category': doc['category'],
-                    'price': doc['price'],
-                    'image_url': doc['image_url'],
-                    'similarity_score': similarity,
-                    'content': doc['content']
+            if named and doc["product_name"] not in named:
+                continue
+            material = fold(doc["material"])
+            if any(not re.search(r"\b" + re.escape(fabric) + r"\b", material) for fabric in fabrics):
+                continue
+            category = fold(doc["category"])
+            name = fold(doc["product_name"])
+            if (gender == "nam" and "nu" in category) or (gender == "nữ" and "nam" in category):
+                continue
+            if category_hint == "sơ mi" and "so mi" not in name:
+                continue
+            if category_hint == "áo khoác" and "khoac" not in category and not re.search(r"\b(khoac|blazer|bomber|cardigan)\b", name):
+                continue
+            if category_hint in ("áo", "quần", "đầm & váy"):
+                prefixes = {"áo": ("ao",), "quần": ("quan",), "đầm & váy": ("dam", "vay")}
+                if not category.startswith(prefixes[category_hint]):
+                    continue
+            budget = constraints["max_price"]
+            if budget is not None and doc["price"] > budget:
+                continue
+
+            sizes = [constraints["size"]] if constraints["size"] else []
+            if has_measurements:
+                fits = matching_sizes(doc.get("size_guide"), height, weight)
+                sizes = [size for size in fits if not sizes or size in sizes]
+                if not sizes:
+                    continue
+            variants = matching_variants(doc["variants"], sizes, constraints["color"])
+            if in_stock_only:
+                variants = [variant for variant in variants if variant["stock_quantity"] > 0]
+            if not variants:
+                continue
+
+            matched_tokens = list(query_tokens)
+            for group in groups:
+                if len(group) < 2:
+                    continue
+                alternatives = [self._tokenize(alias) for alias in group]
+                best = max(alternatives, key=lambda words: sum(word in doc["tokens"] for word in words))
+                if best and any(word in doc["tokens"] for word in best):
+                    original = self._tokenize(group[0])
+                    matched_tokens = [word for word in matched_tokens if word not in original] + best
+            similarity = self._compute_cosine_similarity(matched_tokens, doc["tokens"])
+            if similarity >= MIN_COSINE_CLARIFY_SCORE:
+                score = similarity + (0.05 if has_measurements else 0) + min(len(variants), 5) * 0.005
+                scored.append({
+                    **doc, "similarity_score": similarity, "rank_score": score,
+                    "variants": variants, "fit_sizes": list(dict.fromkeys(normalize_size(v["size"]) for v in variants)) if has_measurements else [],
                 })
-                
-        # Sắp xếp giảm dần theo điểm tương đồng
-        scored_docs.sort(key=lambda x: x['similarity_score'], reverse=True)
-        return scored_docs[:top_k]
+
+        scored.sort(key=lambda doc: doc["rank_score"], reverse=True)
+        qualified = [doc for doc in scored if doc["similarity_score"] >= MIN_COSINE_MATCH_SCORE]
+        return (qualified or scored)[:top_k]
+
+    def named_products(self, query):
+        normalized = fold(query)
+        names = [
+            doc["product_name"] for doc in self.knowledge_base
+            if re.search(r"(?<!\w)" + re.escape(fold(doc["product_name"])) + r"(?!\w)", normalized)
+        ]
+        # Prefer the full title when another product has a name that is part of it.
+        return {name for name in names if not any(name != other and fold(name) in fold(other) for other in names)}
 
     def build_augmented_prompt(self, query, retrieved_chunks):
         """
@@ -143,10 +217,16 @@ class RAGEngine:
         
         # Nếu không có tài liệu nào đủ tương đồng
         if not retrieved_chunks:
-            answer = (
-                "Chào bạn! Hiện tại mình chưa tìm thấy mẫu quần áo nào hoàn toàn khớp với mô tả của bạn trong kho. "
-                "Bạn có thể nói rõ hơn về loại trang phục (ví dụ: áo sơ mi, áo khoác, quần âu, đầm nữ) hoặc chiều cao, cân nặng để mình tư vấn chính xác nhất nhé!"
+            candidates = self.retrieve(query, in_stock_only=False)
+            sold_out = bool(candidates) and all(
+                item["similarity_score"] >= MIN_COSINE_MATCH_SCORE
+                and all(variant["stock_quantity"] <= 0 for variant in item["variants"])
+                for item in candidates
             )
+            if sold_out:
+                answer = "Dạ, các mẫu hoặc biến thể khớp yêu cầu của bạn hiện đã hết hàng."
+            else:
+                answer = "Dạ, cửa hàng chưa tìm thấy mẫu quần áo khớp với yêu cầu của bạn."
             return {
                 'answer': answer,
                 'recommended_products': [],
@@ -155,37 +235,46 @@ class RAGEngine:
                     'query_tokens': self._tokenize(query),
                     'retrieved_count': 0,
                     'retrieved_chunks': [],
-                    'augmented_prompt': augmented_prompt
+                    'augmented_prompt': augmented_prompt,
+                    'outcome': 'OUT_OF_STOCK' if sold_out else 'NO_MATCH',
                 }
             }
 
-        # Tạo câu trả lời thông minh dựa trên context
-        top_prod = retrieved_chunks[0]
-        
-        # Phân tích xem người dùng có hỏi về chiều cao cân nặng không
-        height_match = re.search(r'1m\d{2}|\d{3}\s*cm', query.lower())
-        weight_match = re.search(r'\d{2}\s*kg', query.lower())
-        
-        size_advice = ""
-        if height_match or weight_match:
-            size_advice = f" Theo bảng kích thước của shop, sản phẩm **{top_prod['product_name']}** có thông số rất phù hợp với vóc dáng của bạn."
+        if retrieved_chunks[0]['similarity_score'] < MIN_COSINE_MATCH_SCORE:
+            return {
+                'answer': (
+                    "Mình chưa đủ chắc để gợi ý sản phẩm phù hợp. "
+                    "Bạn cho mình biết rõ hơn loại trang phục hoặc dịp sử dụng nhé?"
+                ),
+                'recommended_products': [],
+                'rag_trace': {
+                    'query': query,
+                    'query_tokens': self._tokenize(query),
+                    'retrieved_count': 0,
+                    'retrieved_chunks': [],
+                    'augmented_prompt': augmented_prompt,
+                    'outcome': 'CLARIFY',
+                }
+            }
 
-        answer = (
-            f"Dạ chào bạn! Dựa trên thông tin bạn chia sẻ,{size_advice} mình xin đề xuất mẫu **{top_prod['product_name']}** "
-            f"với mức giá ưu đãi chỉ **{top_prod['price']:,.0f} VNĐ**.\n\n"
-            f"✨ **Điểm nổi bật:** Trang phục được dệt từ chất liệu cao cấp, form dáng chuẩn đẹp, rất thích hợp cho phong cách bạn đang tìm kiếm. "
-            f"Hiện sản phẩm đang có sẵn trong kho với đầy đủ màu sắc và kích cỡ. Bạn có thể tham khảo ngay bên dưới nhé!"
-        )
-
+        qualified_chunks = [
+            c for c in retrieved_chunks
+            if c['similarity_score'] >= MIN_COSINE_MATCH_SCORE
+        ]
+        stock_question = bool(STOCK_QUESTION.search(query))
+        answer = recommendation_intro(len(qualified_chunks), stock=stock_question)
         recommended_products = [
             {
                 'id': c['product_id'],
                 'name': c['product_name'],
                 'price': c['price'],
                 'image_url': c['image_url'],
+                'material': c['material'],
+                'fit_sizes': c.get('fit_sizes', []),
+                'stock_summary': stock_summary(c['variants']) if stock_question else '',
                 'similarity_score': c['similarity_score']
             }
-            for c in retrieved_chunks
+            for c in qualified_chunks
         ]
 
         return {
@@ -193,15 +282,16 @@ class RAGEngine:
             'recommended_products': recommended_products,
             'rag_trace': {
                 'query': query,
+                'outcome': 'OK',
                 'query_tokens': self._tokenize(query),
-                'retrieved_count': len(retrieved_chunks),
+                'retrieved_count': len(qualified_chunks),
                 'retrieved_chunks': [
                     {
                         'product_name': c['product_name'],
                         'similarity_score': c['similarity_score'],
                         'snippet': c['content'][:180] + "..."
                     }
-                    for c in retrieved_chunks
+                    for c in qualified_chunks
                 ],
                 'augmented_prompt': augmented_prompt
             }

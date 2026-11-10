@@ -9,6 +9,8 @@ let activeCategory = '';
 let currentSelectedProduct = null;
 let currentPendingPayment = null;
 let latestRagTrace = null;
+let aiConversationHistory = [];
+let recentChatProductIds = [];
 
 // Biến trạng thái ZaloPay Gateway & Thẻ test
 let officialTestCards = [];
@@ -187,11 +189,18 @@ function renderProductGrid(products) {
 // ========================================================
 // 3. CHI TIẾT SẢN PHẨM & CHỌN SIZE/MÀU
 // ========================================================
-async function openProductDetailModal(productId) {
+function openProductDetailModal(productId) {
+  return showProductDetailModal(productId);
+}
+
+async function showProductDetailModal(productId, { chooseVariant = false } = {}) {
   try {
     const res = await fetch(`/api/products/${productId}`);
     const data = await res.json();
-    if (!data.success) return;
+    if (!data.success) {
+      showToast('Mẫu này hiện không còn hiển thị tại cửa hàng.', 'warning');
+      return;
+    }
 
     currentSelectedProduct = data.product;
     const p = currentSelectedProduct;
@@ -208,18 +217,26 @@ async function openProductDetailModal(productId) {
 
     // Render danh sách biến thể
     const select = document.getElementById('modalVariantSelect');
-    select.innerHTML = '';
+    select.replaceChildren();
+    if (chooseVariant) {
+      const placeholder = new Option('Chọn màu và size', '', true, true);
+      placeholder.disabled = true;
+      select.appendChild(placeholder);
+    }
     p.variants.forEach(v => {
       const opt = document.createElement('option');
       opt.value = v.id;
       opt.innerText = `Màu ${v.color} - Size ${v.size} (Còn ${v.stock_quantity} chiếc)`;
+      if (chooseVariant && v.stock_quantity <= 0) opt.disabled = true;
       select.appendChild(opt);
     });
 
     select.onchange = updateSelectedVariantStock;
+    document.getElementById('modalQuantity').value = 1;
     updateSelectedVariantStock();
 
     openModal('productDetailModal');
+    if (chooseVariant) select.focus();
   } catch (err) {
     console.error(err);
   }
@@ -231,13 +248,19 @@ function updateSelectedVariantStock() {
   if (!currentSelectedProduct) return;
   const v = currentSelectedProduct.variants.find(x => x.id === variantId);
   const infoEl = document.getElementById('modalVariantStockInfo');
-  if (v) {
+  if (!v) {
+    infoEl.textContent = currentSelectedProduct.variants.some(item => item.stock_quantity > 0)
+      ? 'Bạn chọn màu và size để thêm vào giỏ.'
+      : 'Mẫu này hiện đã hết hàng.';
+    infoEl.style.color = 'var(--slate-600)';
+    document.getElementById('btnAddToCartModal').disabled = true;
+  } else {
     if (v.stock_quantity > 0) {
-      infoEl.innerHTML = `<i class="fa-solid fa-check"></i> SKU: <strong>${v.sku}</strong> | Còn <strong>${v.stock_quantity}</strong> sản phẩm trong kho.`;
+      infoEl.textContent = `SKU: ${v.sku} · Còn ${v.stock_quantity} sản phẩm trong kho.`;
       infoEl.style.color = 'var(--success)';
       document.getElementById('btnAddToCartModal').disabled = false;
     } else {
-      infoEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> SKU: <strong>${v.sku}</strong> | Biến thể này đã hết hàng!`;
+      infoEl.textContent = `SKU: ${v.sku} · Biến thể này đã hết hàng.`;
       infoEl.style.color = 'var(--danger)';
       document.getElementById('btnAddToCartModal').disabled = true;
     }
@@ -251,13 +274,14 @@ function handleAddToCartFromModal() {
   const qty = parseInt(document.getElementById('modalQuantity').value) || 1;
   const v = currentSelectedProduct.variants.find(x => x.id === variantId);
   
-  if (!v || v.stock_quantity < qty) {
+  const existingIndex = currentCart.findIndex(item => item.variant_id === variantId);
+  const quantityInCart = existingIndex < 0 ? 0 : currentCart[existingIndex].quantity;
+  if (!v || qty < 1 || v.stock_quantity < qty + quantityInCart) {
     showToast('Số lượng yêu cầu vượt quá tồn kho hiện tại!', 'error');
     return;
   }
 
   // Thêm vào giỏ
-  const existingIndex = currentCart.findIndex(item => item.variant_id === variantId);
   const price = currentSelectedProduct.discount_price || currentSelectedProduct.price;
 
   if (existingIndex > -1) {
@@ -873,73 +897,140 @@ function sendQuickPrompt(promptText) {
   sendChatMessage();
 }
 
-async function sendChatMessage() {
-  const chatInput = document.getElementById('chatInput');
-  const message = chatInput.value.trim();
-  if (!message) return;
+let chatPending = false;
 
-  chatInput.value = '';
-  appendChatMessage(message, 'user');
-
-  // Hiển thị bóng chat đang suy nghĩ
-  const loadingBubble = appendChatMessage('<i class="fa-solid fa-spinner fa-spin"></i> Đang truy vấn Knowledge Base & tổng hợp câu trả lời...', 'bot', true);
-
-  try {
-    const res = await fetch('/api/ai/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: message })
-    });
-
-    const resData = await res.json();
-    loadingBubble.remove();
-
-    if (resData.success) {
-      const { answer, recommended_products, rag_trace } = resData.data;
-      latestRagTrace = rag_trace;
-
-      // Render câu trả lời của AI
-      const botMessageEl = appendChatMessage(answer.replace(/\n/g, '<br>'), 'bot');
-
-      // Nếu có sản phẩm gợi ý từ RAG
-      if (recommended_products && recommended_products.length > 0) {
-        const prodCardsBox = document.createElement('div');
-        prodCardsBox.className = 'chat-product-cards';
-
-        recommended_products.forEach(p => {
-          const itemLink = document.createElement('div');
-          itemLink.className = 'chat-prod-item';
-          itemLink.onclick = () => openProductDetailModal(p.id);
-          itemLink.style.cursor = 'pointer';
-
-          itemLink.innerHTML = `
-            <img src="${p.image_url}" alt="${p.name}">
-            <div class="chat-prod-item-info">
-              <div class="chat-prod-name">${p.name}</div>
-              <div class="chat-prod-price">${p.price.toLocaleString('vi-VN')} đ</div>
-            </div>
-            <div class="chat-prod-score">Khớp: ${Math.round(p.similarity_score * 100)}%</div>
-          `;
-          prodCardsBox.appendChild(itemLink);
-        });
-
-        botMessageEl.appendChild(prodCardsBox);
-      }
-    } else {
-      appendChatMessage('Xin lỗi, đã xảy ra lỗi trong quá trình xử lý câu hỏi.', 'bot');
+async function readChatResult(response, loadingBubble) {
+  if (!response.ok || !response.headers.get('Content-Type')?.includes('application/x-ndjson')) {
+    return response.json();
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error('Luồng chat kết thúc trước khi có câu trả lời');
+    pending += decoder.decode(value, { stream: true });
+    const lines = pending.split('\n');
+    pending = lines.pop();
+    for (const line of lines) {
+      const event = JSON.parse(line);
+      if (event.event === 'retrieving') loadingBubble.textContent = 'Aura đang kiểm tra dữ liệu cửa hàng…';
+      if (event.event === 'answer') return event;
     }
-  } catch (err) {
-    loadingBubble.remove();
-    appendChatMessage('Không thể kết nối với dịch vụ RAG AI.', 'bot');
   }
 }
 
-function appendChatMessage(htmlContent, sender, isTemporary = false) {
+async function sendChatMessage() {
+  const chatInput = document.getElementById('chatInput');
+  const message = chatInput.value.trim();
+  if (!message || chatPending) return;
+  chatPending = true;
+  chatInput.value = '';
+  appendChatMessage(message, 'user');
+  const loadingBubble = appendChatMessage('Đang gửi câu hỏi…', 'bot');
+
+  try {
+    const response = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/x-ndjson' },
+      body: JSON.stringify({
+        message, conversation_history: aiConversationHistory.slice(-12), recent_product_ids: recentChatProductIds
+      })
+    });
+    const result = await readChatResult(response, loadingBubble);
+    if (!result.success) {
+      appendChatMessage(result.error || 'Chưa thể kiểm tra dữ liệu cửa hàng.', 'bot');
+      return;
+    }
+    const { answer, recommended_products, rag_trace } = result.data;
+    latestRagTrace = rag_trace;
+    const botMessage = appendChatMessage(answer, 'bot');
+    aiConversationHistory.push({ role: 'user', content: message }, { role: 'assistant', content: answer });
+    aiConversationHistory = aiConversationHistory.slice(-12);
+    if (recommended_products?.length) {
+      recentChatProductIds = recommended_products.slice(0, 3).map(product => product.id);
+      const box = document.createElement('div');
+      box.className = 'chat-product-cards';
+      for (const product of recommended_products) {
+        const card = document.createElement('article');
+        card.className = 'chat-prod-item';
+        const media = document.createElement('div');
+        media.className = 'chat-prod-media';
+        media.textContent = 'AURA';
+        const img = document.createElement('img');
+        const imagePath = typeof product.image_url === 'string' ? product.image_url : '';
+        if (/^(\/(?!\/)[^\\]|https?:\/\/)/i.test(imagePath)) {
+          img.alt = '';
+          img.addEventListener('error', () => img.remove(), { once: true });
+          img.src = imagePath;
+          media.appendChild(img);
+        }
+        const info = document.createElement('div');
+        info.className = 'chat-prod-item-info';
+        const name = document.createElement('div');
+        name.className = 'chat-prod-name';
+        name.textContent = product.name;
+        name.title = product.name;
+        const price = document.createElement('div');
+        price.className = 'chat-prod-price';
+        price.textContent = Number(product.price).toLocaleString('vi-VN') + ' đ';
+        info.append(name, price);
+        const note = document.createElement('p');
+        note.className = 'chat-prod-note';
+        if (product.fit_sizes?.length) {
+          note.textContent = 'Size phù hợp: ' + product.fit_sizes.join(', ');
+        } else if (product.material && !product.stock_summary) {
+          note.textContent = product.material;
+        }
+        if (note.textContent) info.appendChild(note);
+        const actions = document.createElement('div');
+        actions.className = 'chat-prod-actions';
+        const view = document.createElement('button');
+        view.type = 'button';
+        view.textContent = 'Xem sản phẩm';
+        view.addEventListener('click', () => showProductDetailModal(product.id));
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'chat-prod-add';
+        add.textContent = 'Thêm vào giỏ';
+        add.addEventListener('click', () => showProductDetailModal(product.id, { chooseVariant: true }));
+        actions.append(view, add);
+        card.append(media, info);
+        if (product.stock_summary) {
+          const stock = document.createElement('p');
+          stock.className = 'chat-prod-stock';
+          stock.textContent = product.stock_summary;
+          card.appendChild(stock);
+        }
+        card.appendChild(actions);
+        box.appendChild(card);
+      }
+      botMessage.appendChild(box);
+      document.getElementById('chatMessages').scrollTop = botMessage.parentElement.offsetTop;
+    } else if (['PRODUCT_SEARCH', 'OUTFIT'].includes(rag_trace?.intent)) {
+      recentChatProductIds = [];
+    }
+  } catch (error) {
+    appendChatMessage('Không thể kết nối với dịch vụ RAG AI.', 'bot');
+  } finally {
+    loadingBubble.parentElement.remove();
+    chatPending = false;
+  }
+}
+
+function appendChatMessage(content, sender) {
   const messagesContainer = document.getElementById('chatMessages');
+  const row = document.createElement('div');
+  row.className = 'chat-message chat-message-' + sender;
+  const meta = document.createElement('div');
+  meta.className = 'chat-message-meta';
+  const time = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  meta.textContent = (sender === 'user' ? 'Bạn' : 'AURA Stylist') + ' · ' + time;
   const bubble = document.createElement('div');
-  bubble.className = `chat-bubble bubble-${sender}`;
-  bubble.innerHTML = htmlContent;
-  messagesContainer.appendChild(bubble);
+  bubble.className = 'chat-bubble bubble-' + sender;
+  bubble.textContent = content;
+  row.append(meta, bubble);
+  messagesContainer.appendChild(row);
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
   return bubble;
 }
@@ -949,6 +1040,15 @@ function appendChatMessage(htmlContent, sender, isTemporary = false) {
 // ========================================================
 function renderRagTraceModal(trace) {
   const container = document.getElementById('ragTraceContent');
+  const intents = {
+    OUT_OF_SCOPE: 'Ngoài phạm vi cửa hàng', GREETING: 'Chào hỏi', CLARIFY: 'Cần làm rõ',
+    PRODUCT_SEARCH: 'Tìm sản phẩm', STOCK_CHECK: 'Kiểm tra tồn kho', SIZE_ADVICE: 'Tư vấn size',
+    OUTFIT: 'Phối đồ', STORE_POLICY: 'Chính sách cửa hàng', ORDER_LOOKUP: 'Tra cứu đơn hàng'
+  };
+  const outcomes = {
+    OK: 'Có mẫu phù hợp', IN_STOCK: 'Còn hàng', OUT_OF_STOCK: 'Hết hàng',
+    NO_MATCH: 'Chưa có mẫu phù hợp', NO_VARIANT: 'Chưa có màu hoặc size này', CLARIFY: 'Cần làm rõ'
+  };
   container.innerHTML = `
     <div style="font-size: 13px; color: var(--slate-600); margin-bottom: 16px;">
       💡 <strong>Minh chứng kỹ thuật:</strong> Bảng điều khiển này phân tích toàn bộ quy trình 4 bước của kỹ thuật RAG (Retrieval-Augmented Generation) khi xử lý câu hỏi thời trang của người dùng.
@@ -960,10 +1060,14 @@ function renderRagTraceModal(trace) {
         <span class="step-num">1</span>
         <span>Truy Vấn Của Người Dùng & Token Extraction</span>
       </div>
-      <div style="font-size: 13px; margin-bottom: 6px;"><strong>Câu hỏi:</strong> "${trace.query}"</div>
+      <div style="font-size: 13px; margin-bottom: 6px;"><strong>Câu hỏi:</strong> "${escapeHtml(trace.query)}"</div>
+      <div style="font-size: 13px; margin-bottom: 6px;">
+        <strong>Phân loại:</strong> ${escapeHtml(intents[trace.intent] ?? '—')}
+        · <strong>Kết quả:</strong> ${escapeHtml(outcomes[trace.outcome] ?? '—')}
+      </div>
       <div style="font-size: 12px; color: var(--slate-600);">
         <strong>Từ khóa bóc tách (Query Tokens):</strong> 
-        ${trace.query_tokens.map(t => `<span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; margin-right: 4px;">${t}</span>`).join('')}
+        ${trace.query_tokens.map(t => `<span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; margin-right: 4px;">${escapeHtml(t)}</span>`).join('')}
       </div>
     </div>
 
@@ -971,7 +1075,7 @@ function renderRagTraceModal(trace) {
     <div class="rag-step-box">
       <div class="rag-step-header">
         <span class="step-num">2</span>
-        <span>Semantic Retrieval (Cosine Similarity) Từ CSDL SQL</span>
+        <span>Truy xuất từ CSDL · ${escapeHtml(trace.mode || "local")}</span>
       </div>
       <div style="font-size: 13px; margin-bottom: 8px;">
         Đã so khớp với Knowledge Base và trích xuất <strong>${trace.retrieved_count}</strong> sản phẩm phù hợp nhất:
@@ -979,10 +1083,10 @@ function renderRagTraceModal(trace) {
       ${trace.retrieved_chunks.map((c, idx) => `
         <div style="background: white; border: 1px solid var(--slate-200); padding: 10px; border-radius: 6px; margin-bottom: 8px; font-size: 12px;">
           <div style="display: flex; justify-content: space-between; font-weight: 700; color: var(--slate-900);">
-            <span>Top ${idx + 1}: ${c.product_name}</span>
-            <span style="color: var(--primary);">Điểm tương đồng: ${c.similarity_score}</span>
+            <span>Top ${idx + 1}: ${escapeHtml(c.product_name)}</span>
+            <span style="color: var(--primary);">Điểm tương đồng: ${escapeHtml(c.similarity_score ?? "—")}</span>
           </div>
-          <div style="color: var(--slate-600); margin-top: 4px;">${c.snippet}</div>
+          <div style="color: var(--slate-600); margin-top: 4px;">${escapeHtml(c.snippet)}</div>
         </div>
       `).join('')}
     </div>
@@ -991,10 +1095,10 @@ function renderRagTraceModal(trace) {
     <div class="rag-step-box">
       <div class="rag-step-header">
         <span class="step-num">3</span>
-        <span>Prompt Được Tăng Cường (Augmented Prompt Gửi Cho LLM)</span>
+        <span>Ngữ cảnh dùng để trả lời</span>
       </div>
       <div style="font-size: 12px; color: var(--slate-600); margin-bottom: 6px;">
-        Hệ thống tự động tiêm (inject) bối cảnh sản phẩm thực tế vào prompt để tránh hallucination:
+        Dữ liệu sản phẩm hoặc kết quả công cụ truy xuất được trong lượt này.
       </div>
       <div class="rag-code-block">${escapeHtml(trace.augmented_prompt)}</div>
     </div>
@@ -1005,10 +1109,20 @@ function renderRagTraceModal(trace) {
 
 async function syncRagVectorDB() {
   try {
-    const res = await fetch('/api/ai/sync-rag', { method: 'POST' });
+    const auth = await fetch('/api/auth/me').then(response => response.json());
+    if (!auth.success || !['ADMIN', 'STAFF'].includes(auth.user.role)) {
+      showToast('Bạn cần đăng nhập bằng tài khoản quản lý để đồng bộ RAG.', 'warning');
+      return;
+    }
+    const res = await fetch('/api/ai/sync-rag', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': auth.csrf_token }
+    });
     const data = await res.json();
     if (data.success) {
       showToast(data.message, 'success');
+    } else {
+      showToast(data.error || 'Đồng bộ RAG thất bại.', 'error');
     }
   } catch (err) {
     showToast('Lỗi đồng bộ dữ liệu RAG!', 'error');
