@@ -197,6 +197,12 @@ function renderCards(botMessage, recommended_products) {
     } else if (product.material && !product.stock_summary) {
       note.textContent = product.material;
     }
+    if (product.available_colors?.length) {
+      const colors = 'Màu còn hàng: ' + product.available_colors.join(', ');
+      note.textContent = note.textContent
+        ? note.textContent + ' · ' + colors
+        : colors;
+    }
     if (note.textContent) info.appendChild(note);
     const actions = document.createElement('div');
     actions.className = 'chat-prod-actions';
@@ -286,6 +292,9 @@ function renderRagTraceModal(trace) {
             <span>Top ${idx + 1}: ${escapeHtml(c.product_name)}</span>
             <span style="color: var(--primary);">Điểm tương đồng: ${escapeHtml(c.similarity_score ?? "—")}</span>
           </div>
+          ${Array.isArray(c.available_colors) && c.available_colors.length
+            ? `<div style="color: var(--slate-600); margin-top: 4px;">Màu còn hàng: ${escapeHtml(c.available_colors.join(', '))}</div>`
+            : ''}
           <div style="color: var(--slate-600); margin-top: 4px;">${escapeHtml(c.snippet)}</div>
         </div>
       `).join('')}

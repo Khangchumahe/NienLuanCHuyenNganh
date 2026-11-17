@@ -15,7 +15,7 @@ import unicodedata
 from typing import Dict, Any, List, Optional
 from database.db import get_db_connection
 from services.rag_rules import (
-    available_variants, detect_category_hint as _detect_category_hint,
+    available_variants, base_product_name, detect_category_hint as _detect_category_hint,
     detect_gender as _detect_gender, expand_term_groups as _expand_term_groups,
     fold, matching_sizes, matching_variants, nearest_size, normalize_size,
     requested_fabrics, size_guide_rows, valid_measurements,
@@ -144,11 +144,8 @@ def _run_search(conn, category: str, terms: List[Any], max_price: float,
     if having:
         sql += " HAVING " + " AND ".join(having)
     sql += " ORDER BY relevance DESC, rank_score DESC, total_stock DESC, p.id ASC"
-    if not full_results:
-        sql += " LIMIT ?"
-        params.append(max(1, min(int(limit or 4), 8)))
-
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    grouped = {}
     for r in rows:
         raw_score = r.get("relevance", 0)
         if term_groups and raw_score > 0:
@@ -156,7 +153,45 @@ def _run_search(conn, category: str, terms: List[Any], max_price: float,
         else:
             r["relevance"] = 1.0 if category else 0.0
         r.pop("rank_score", None)
-    return rows
+        if "name" not in r:
+            continue
+        r["name"] = base_product_name(r["name"])
+        key = (r["category"], fold(r["name"]))
+        row_colors = [
+            value.strip() for value in (r.get("colors_in_stock") or "").split(",")
+            if value.strip()
+        ]
+        if key not in grouped:
+            grouped[key] = {
+                **r,
+                "product_ids": [r["id"]],
+                "available_colors": row_colors,
+                "sizes_in_stock": [],
+            }
+            continue
+        current = grouped[key]
+        current["product_ids"].append(r["id"])
+        current["available_colors"].extend(row_colors)
+        current["total_stock"] += r["total_stock"]
+        if r["relevance"] > current["relevance"]:
+            for field in ("id", "price", "discount_price", "material", "style", "size_guide", "image_url", "relevance"):
+                current[field] = r[field]
+
+    if not grouped:
+        return rows
+
+    results = list(grouped.values())
+    for result in results:
+        result["available_colors"] = list(dict.fromkeys(result["available_colors"]))
+        if color:
+            result["available_colors"] = [
+                value for value in result["available_colors"]
+                if fold(color) in fold(value)
+            ]
+        result["product_ids"] = list(dict.fromkeys(result["product_ids"]))
+    if not full_results:
+        results = results[:max(1, min(int(limit or 4), 8))]
+    return results
 
 
 # ---------------------------------------------------------------- TOOLS
@@ -216,7 +251,11 @@ def db_search_products(category: str = "", keyword: str = "", max_price: float =
                         fits = [fit for fit in fits if fit == normalize_size(size)]
                     if not fits:
                         continue
-                    variants = matching_variants(variants_by_product[row["id"]], fits, color)
+                    grouped_variants = [
+                        variant for product_id in row.get("product_ids", [row["id"]])
+                        for variant in variants_by_product[product_id]
+                    ]
+                    variants = matching_variants(grouped_variants, fits, color)
                     if stock_only:
                         variants = [v for v in variants if v["stock_quantity"] > 0]
                     if not variants:

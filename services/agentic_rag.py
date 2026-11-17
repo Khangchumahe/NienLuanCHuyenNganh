@@ -103,9 +103,11 @@ def _collect_recommended_products(trace):
             if product_id not in seen:
                 seen.add(product_id)
                 products.append({
-                    "id": product_id, "name": product["name"], "price": selling_price(product),
+                    "id": product_id, "product_ids": product.get("product_ids", [product_id]),
+                    "name": product["name"], "price": selling_price(product),
                     "image_url": product.get("image_url"), "similarity_score": product.get("relevance"),
                     "material": product.get("material"), "fit_sizes": product.get("fit_sizes", []),
+                    "available_colors": product.get("available_colors", []),
                 })
     return products[:3]
 
@@ -263,7 +265,9 @@ def _reply(query, answer, mode, trace=None, *, intent=None, outcome=None):
             "query": query, "query_tokens": RAGEngine._tokenize(query),
             "retrieved_count": len(products),
             "retrieved_chunks": [
-                {"product_name": p["name"], "similarity_score": p["similarity_score"],
+                {"product_name": p["name"], "product_ids": p.get("product_ids", [p["id"]]),
+                 "available_colors": p.get("available_colors", []),
+                 "similarity_score": p["similarity_score"],
                  "snippet": f"Giá: {format_price(p['price'])} | Nguồn: SQLite"}
                 for p in products
             ],

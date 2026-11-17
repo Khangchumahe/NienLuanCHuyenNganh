@@ -14,7 +14,7 @@ from threading import RLock
 import unicodedata
 from database.db import get_all_products
 from services.rag_rules import (
-    HEIGHT, STOP_WORDS, STOCK_QUESTION, WEIGHT, catalog_query, detect_category_hint,
+    HEIGHT, STOP_WORDS, STOCK_QUESTION, WEIGHT, base_product_name, catalog_query, detect_category_hint,
     detect_gender, expand_term_groups, fold, matching_sizes, matching_variants,
     normalize_size, query_constraints, recommendation_intro, requested_fabrics, selling_price,
     stock_summary, valid_measurements,
@@ -174,7 +174,76 @@ class RAGEngine:
 
         scored.sort(key=lambda doc: doc["rank_score"], reverse=True)
         qualified = [doc for doc in scored if doc["similarity_score"] >= MIN_COSINE_MATCH_SCORE]
-        return (qualified or scored)[:top_k]
+        candidates = qualified or scored
+
+        # The demo catalog stores each color as a separate product row. Group
+        # those rows by the model name before selecting Top-K so colors do not
+        # crowd out distinct models.
+        grouped = {}
+        for doc in candidates:
+            base_name = base_product_name(doc["product_name"])
+            key = fold(base_name)
+            if key not in grouped:
+                grouped[key] = {
+                    **doc,
+                    "product_name": base_name,
+                    "product_ids": [doc["product_id"]],
+                    "variants": list(doc["variants"]),
+                    "available_colors": [],
+                }
+                continue
+            group = grouped[key]
+            group["product_ids"].append(doc["product_id"])
+            existing_variants = {variant["id"] for variant in group["variants"]}
+            group["variants"].extend(
+                variant for variant in doc["variants"]
+                if variant["id"] not in existing_variants
+            )
+            if doc["rank_score"] > group["rank_score"]:
+                group.update({
+                    "product_id": doc["product_id"],
+                    "image_url": doc["image_url"],
+                    "similarity_score": doc["similarity_score"],
+                    "rank_score": doc["rank_score"],
+                })
+
+        results = list(grouped.values())
+        for group in results:
+            group["product_ids"] = list(dict.fromkeys(group["product_ids"]))
+            group["available_colors"] = list(dict.fromkeys(
+                variant["color"] for variant in group["variants"]
+                if variant["stock_quantity"] > 0
+            ))
+            group["fit_sizes"] = list(dict.fromkeys(
+                normalize_size(variant["size"])
+                for variant in group["variants"]
+            )) if has_measurements else []
+            inventory_parts = []
+            for color in group["available_colors"]:
+                sizes = dict.fromkeys(
+                    item["size"] for item in group["variants"]
+                    if item["color"] == color and item["stock_quantity"] > 0
+                )
+                for size in sizes:
+                    quantity = sum(
+                        item["stock_quantity"] for item in group["variants"]
+                        if item["color"] == color and item["size"] == size
+                    )
+                    inventory_parts.append(
+                        f"{color} (Size {size}: còn {quantity} cái)"
+                    )
+            color_inventory = ", ".join(inventory_parts)
+            group["content"] = (
+                f"Sản phẩm: {group['product_name']}.\n"
+                f"Danh mục: {group['category']}.\n"
+                f"Giá bán: {group['price']:,.0f} VNĐ.\n"
+                f"Chất liệu: {group['material']}.\n"
+                f"Phong cách: {group['style']}.\n"
+                f"Bảng size: {group['size_guide']}.\n"
+                f"Màu và tồn kho: {color_inventory}."
+            )
+        results.sort(key=lambda doc: doc["rank_score"], reverse=True)
+        return results[:top_k]
 
     @_synchronized
     def named_products(self, query):
@@ -217,6 +286,34 @@ class RAGEngine:
         """
         Bước 4: Generation & Tạo RAG Trace (Minh chứng trực quan luồng RAG)
         """
+        constraints = query_constraints(query)
+        if (
+            (constraints["height"] is not None or constraints["weight"] is not None)
+            and not detect_gender(query)
+        ):
+            possible = self.retrieve(query, top_k=len(self.knowledge_base))
+            genders = {
+                "nam" if "nam" in fold(item["category"])
+                else "nữ" if "nu" in fold(item["category"])
+                else "unisex"
+                for item in possible
+            }
+            if "nam" in genders and "nữ" in genders:
+                answer = "Bạn mua cho nam hay nữ ạ?"
+                return {
+                    "answer": answer,
+                    "recommended_products": [],
+                    "rag_trace": {
+                        "generation_mode": "template",
+                        "query": query,
+                        "query_tokens": self._tokenize(query),
+                        "retrieved_count": 0,
+                        "retrieved_chunks": [],
+                        "augmented_prompt": self.build_augmented_prompt(query, []),
+                        "outcome": "CLARIFY",
+                    },
+                }
+
         # Trích xuất sản phẩm liên quan
         retrieved_chunks = self.retrieve(query, top_k=3)
         augmented_prompt = self.build_augmented_prompt(query, retrieved_chunks)
@@ -279,6 +376,7 @@ class RAGEngine:
                 'image_url': c['image_url'],
                 'material': c['material'],
                 'fit_sizes': c.get('fit_sizes', []),
+                'available_colors': c.get('available_colors', []),
                 'stock_summary': stock_summary(c['variants']) if stock_question else '',
                 'similarity_score': c['similarity_score']
             }

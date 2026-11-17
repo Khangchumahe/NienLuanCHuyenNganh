@@ -6,6 +6,20 @@ import unicodedata
 
 
 SYNONYMS = {
+    "jean": ["jean", "jeans", "bò", "denim"],
+    "jeans": ["jean", "jeans", "bò", "denim"],
+    "bò": ["jean", "jeans", "bò", "denim"],
+    "denim": ["jean", "jeans", "bò", "denim"],
+    "thun": ["thun", "phông", "t-shirt", "tee", "áo thun"],
+    "phông": ["thun", "phông", "t-shirt", "tee", "áo thun"],
+    "t-shirt": ["thun", "phông", "t-shirt", "tee", "áo thun"],
+    "sơ mi": ["sơ mi", "so mi", "shirt"],
+    "so mi": ["sơ mi", "so mi", "shirt"],
+    "khoác": ["khoác", "jacket", "áo khoác"],
+    "jacket": ["khoác", "jacket", "áo khoác"],
+    "phượt": ["phượt", "du lịch", "đi chơi xa", "outdoor"],
+    "du lịch": ["phượt", "du lịch", "đi chơi xa", "outdoor"],
+    "đi chơi xa": ["phượt", "du lịch", "đi chơi xa", "outdoor"],
     "thể thao": ["thể thao", "sport", "năng động", "thoáng", "dry", "thun"],
     "công sở": ["công sở", "lịch sự", "sơ mi", "thanh lịch", "tây"],
     "đi chơi": ["đi chơi", "casual", "basic", "dạo phố", "streetwear"],
@@ -24,6 +38,9 @@ STOP_WORDS = {
     "thế", "sao", "đi", "lại", "đang", "đã", "sẽ", "là", "ở", "này", "đó",
     "một", "vài", "cái", "chiếc", "bộ", "mẫu",
 }
+PRODUCT_COLOR_SUFFIX = re.compile(
+    r"\s+(?:đen|trắng|be|xanh navy|nâu)$", re.IGNORECASE
+)
 
 
 HEIGHT = r"(?:\d\s*m\s*\d{1,2}|\d[.,]\d+\s*m|\d{2,3}\s*cm)"
@@ -49,6 +66,11 @@ def fold(text):
     return "".join(c for c in decomposed if not unicodedata.combining(c)).replace("đ", "d")
 
 
+def base_product_name(name):
+    """Remove a known trailing catalog color from the display/model name."""
+    return PRODUCT_COLOR_SUFFIX.sub("", str(name or "")).strip()
+
+
 def detect_gender(text):
     normalized = unicodedata.normalize("NFC", str(text or "")).casefold()
     has_female = re.search(r"\b(?:nữ|nu|gái|vợ|mẹ|cô ấy|đầm|váy)\b", normalized)
@@ -65,11 +87,11 @@ def detect_category_hint(text):
     folded = fold(normalized)
     if re.search(r"\bso mi\b", folded):
         return "sơ mi"
-    if re.search(r"\b(?:khoac|blazer|bomber|cardigan)\b", folded):
+    if re.search(r"\b(?:khoac|jacket|blazer|bomber|cardigan)\b", folded):
         return "áo khoác"
-    if re.search(r"\b(?:áo|ao|polo|thun)\b", normalized):
+    if re.search(r"\b(?:áo|ao|polo|thun|phông|tee|t-shirt)\b", normalized):
         return "áo"
-    if re.search(r"\b(?:quần|quan|jeans?|kaki|jogger|short)\b", normalized):
+    if re.search(r"\b(?:quần|quan|jeans?|bò|bo|denim|kaki|jogger|short)\b", normalized):
         return "quần"
     if re.search(r"\b(?:đầm|dam|váy|vay)\b", normalized):
         return "đầm & váy"
