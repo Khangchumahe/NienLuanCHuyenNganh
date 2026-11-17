@@ -609,8 +609,13 @@
     let register = false;
     let cart = [];
 
+    function safeNumber(value) {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : 0;
+    }
+
     const money = value =>
-        Number(value || 0).toLocaleString('vi-VN') + ' đ';
+        safeNumber(value).toLocaleString('vi-VN') + ' đ';
 
     const esc = value =>
         String(value ?? '').replace(/[&<>"']/g, character => ({
@@ -838,14 +843,14 @@
                                     <td>${esc(product.name)}</td>
                                     <td>
                                         ${money(
-                                            product.discount_price
-                                            || product.price
+                                            safeNumber(product.discount_price)
+                                            || safeNumber(product.price)
                                         )}
                                     </td>
                                     <td>
                                         <button
                                             type="button"
-                                            data-product="${Number(product.id)}"
+                                            data-product="${safeNumber(product.id)}"
                                         >
                                             Chọn size/màu
                                         </button>
@@ -890,12 +895,12 @@
                                 ${esc(variant.color)} /
                                 ${esc(variant.size)} —
                                 ${esc(variant.sku)} —
-                                còn ${Number(variant.stock_quantity)}
+                                còn ${safeNumber(variant.stock_quantity)}
                             </span>
                             <button
                                 type="button"
-                                data-variant="${Number(variant.id)}"
-                                ${variant.stock_quantity < 1 ? 'disabled' : ''}
+                                data-variant="${safeNumber(variant.id)}"
+                                ${safeNumber(variant.stock_quantity) < 1 ? 'disabled' : ''}
                             >
                                 Thêm vào giỏ
                             </button>
@@ -944,9 +949,9 @@
             ? cart.map((item, index) => `
                 <div class="row" style="margin-bottom:9px">
                     <span>
-                        ${esc(item.name)} — SL ${item.quantity}
+                        ${esc(item.name)} — SL ${safeNumber(item.quantity)}
                     </span>
-                    <button type="button" data-remove="${index}">
+                    <button type="button" data-remove="${safeNumber(index)}">
                         Bỏ
                     </button>
                 </div>
@@ -1032,7 +1037,7 @@
                                         <td>
                                             <button
                                                 type="button"
-                                                data-order="${Number(order.id)}"
+                                                data-order="${safeNumber(order.id)}"
                                             >
                                                 Chi tiết
                                             </button>
@@ -1072,8 +1077,8 @@
                         <p>
                             ${esc(item.name)} —
                             ${esc(item.color)}/${esc(item.size)}
-                            × ${Number(item.quantity)} —
-                            ${money(item.subtotal)}
+                            × ${safeNumber(item.quantity)} —
+                            ${money(safeNumber(item.subtotal))}
                         </p>
                     `).join('')}
 
