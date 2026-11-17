@@ -1,6 +1,6 @@
 """AURA FASHION admin dashboard; register after authentication and order/product routes."""
 from flask import render_template, jsonify
-from database.db import get_db_connection
+from database.db import expire_pending_orders, get_db_connection
 
 
 def register_admin_dashboard_routes(app, require_admin):
@@ -12,6 +12,7 @@ def register_admin_dashboard_routes(app, require_admin):
     @app.get('/api/admin/dashboard/summary')
     @require_admin
     def admin_dashboard_summary():
+        expire_pending_orders()
         conn = get_db_connection()
         try:
             products = conn.execute('SELECT COUNT(*) FROM products').fetchone()[0]

@@ -2,7 +2,7 @@
 import sqlite3
 from contextlib import contextmanager
 from flask import Blueprint, jsonify, request
-from database.db import get_db_connection
+from database.db import expire_pending_orders, get_db_connection
 
 
 @contextmanager
@@ -70,6 +70,7 @@ def register_admin_product_routes(app, require_admin, require_csrf, rag_service=
     @bp.get('/api/admin/products')
     @require_admin
     def list_products():
+        expire_pending_orders()
         conn = get_db_connection()
         try:
             rows = conn.execute('''SELECT p.*, c.name AS category_name,

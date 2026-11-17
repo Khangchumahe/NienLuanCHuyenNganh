@@ -2,10 +2,15 @@
 
 import os
 import re
+import json
+from pathlib import Path
 
 INTRODUCTION = "Mình là AURA Stylist, trợ lý ảo AI của AURA. Mình hỗ trợ tìm quần áo, chọn size, kiểm tra tồn kho và tra cứu thông tin mua hàng."
-RETURN_POLICY = "AURA hỗ trợ đổi trả trong 7 ngày với sản phẩm còn nguyên tem mác."
-SHIPPING_POLICY = "AURA miễn phí vận chuyển cho đơn từ 500.000đ."
+POLICY_FILE = Path(__file__).resolve().parents[1] / "config" / "store_policies.json"
+with POLICY_FILE.open(encoding="utf-8") as policy_stream:
+    STORE_POLICIES = json.load(policy_stream)
+RETURN_POLICY = STORE_POLICIES["return_policy"]
+SHIPPING_POLICY = STORE_POLICIES["shipping_policy"]
 SENSITIVE_CARD = re.compile(r"\b(?:so the|the tin dung|card number|credit card)\b.*(?:\d[ -]?){13,19}")
 RETURN_QUESTION = re.compile(
     r"\b(?:doi (?:tra|cha|hang|size|duoc|ko|khong)|tra (?:hang|duoc)|hoan tien|"

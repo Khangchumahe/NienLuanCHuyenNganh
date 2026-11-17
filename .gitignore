@@ -68,3 +68,4 @@ __pycache__/
 .env.*
 !.env.example
 database/store.db-*
+.pytest_cache/

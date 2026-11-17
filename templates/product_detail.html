@@ -11,7 +11,7 @@
   <main class="container">
     <p style="margin: 24px 0;"><a href="/">← Về cửa hàng AURA</a></p>
     <article class="product-detail-body" style="margin-bottom: 96px;">
-      {% if product.image_url %}
+      {% if product.image_url and (product.image_url.startswith('/static/') or product.image_url.startswith('https://')) %}
         <img class="product-detail-image" src="{{ product.image_url }}" alt="{{ product.name }}">
       {% endif %}
       <div>

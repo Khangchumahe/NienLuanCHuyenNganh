@@ -1,8 +1,7 @@
 """AURA customer portal: customer-owned orders and profile, without changing admin endpoints."""
 import sqlite3
-from datetime import datetime
 from flask import render_template, jsonify, request, g
-from database.db import get_db_connection
+from database.db import get_db_connection, sp_create_order_and_deduct_stock
 
 
 def register_customer_routes(app, require_login, require_csrf):
@@ -87,45 +86,22 @@ def register_customer_routes(app, require_login, require_csrf):
             if not isinstance(item, dict) or type(item.get('variant_id')) is not int or type(item.get('quantity')) is not int:
                 return jsonify(success=False, error='variant_id và quantity phải là số nguyên'), 400
             vid, qty = item['variant_id'], item['quantity']
-            if vid <= 0 or not 1 <= qty <= 100:
+            if vid <= 0 or not 1 <= qty <= 20:
                 return jsonify(success=False, error='ID hoặc số lượng không hợp lệ'), 400
             quantities[vid] = quantities.get(vid, 0) + qty
-            if quantities[vid] > 100:
+            if quantities[vid] > 20:
                 return jsonify(success=False, error='Vượt số lượng tối đa'), 400
-        c = get_db_connection()
-        try:
-            c.execute('BEGIN IMMEDIATE')
-            validated = []
-            total = 0.0
-            for vid, qty in quantities.items():
-                p = c.execute('''SELECT pv.stock_quantity, p.price, p.discount_price, p.is_published
-                    FROM product_variants pv JOIN products p ON p.id=pv.product_id WHERE pv.id=?''', (vid,)).fetchone()
-                if not p or not p['is_published'] or p['stock_quantity'] < qty:
-                    c.rollback()
-                    return jsonify(success=False, error=f'Biến thể {vid} không đủ hàng hoặc không còn bán'), 409
-                price = p['discount_price'] if p['discount_price'] else p['price']
-                total += price * qty
-                validated.append((vid, qty, price))
-            # Unique code includes microseconds to reduce collisions during local tests.
-            code = 'ORD-' + datetime.now().strftime('%Y%m%d%H%M%S%f')
-            cur = c.execute('''INSERT INTO orders
-                (order_code, customer_name, customer_phone, customer_address, total_amount, status, payment_method)
-                VALUES (?,?,?,?,?,'PENDING_PAYMENT','VIRTUAL_SANDBOX')''',
-                (code, g.user['full_name'], phone, address, total))
-            oid = cur.lastrowid
-            c.execute('INSERT INTO customer_order_links (order_id,user_id) VALUES (?,?)', (oid, g.user['id']))
-            for vid, qty, price in validated:
-                c.execute('INSERT INTO order_items (order_id,variant_id,quantity,unit_price,subtotal) VALUES (?,?,?,?,?)',
-                    (oid, vid, qty, price, qty * price))
-                c.execute('UPDATE product_variants SET stock_quantity=stock_quantity-? WHERE id=?', (qty, vid))
-            trans = f"TRX-{datetime.now().strftime('%y%m%d%H%M%S%f')}-{oid}"
-            c.execute('INSERT INTO payments (order_id,transaction_code,amount,status) VALUES (?,?,?,?)',
-                      (oid, trans, total, 'PENDING'))
-            c.commit()
-            return jsonify(success=True, order_id=oid, order_code=code, total_amount=total, status='PENDING_PAYMENT'), 201
-        except (sqlite3.Error, ValueError):
-            c.rollback()
-            app.logger.exception('Customer checkout failed')
-            return jsonify(success=False, error='Không tạo được đơn hàng'), 500
-        finally:
-            c.close()
+        result = sp_create_order_and_deduct_stock(
+            {
+                'name': g.user['full_name'],
+                'phone': phone,
+                'address': address,
+            },
+            [{'variant_id': variant_id, 'quantity': quantity}
+             for variant_id, quantity in quantities.items()],
+            'VIRTUAL_SANDBOX',
+            customer_user_id=g.user['id'],
+        )
+        if not result['success']:
+            return jsonify(result), 409
+        return jsonify(**result, status='PENDING_PAYMENT'), 201

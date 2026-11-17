@@ -15,32 +15,13 @@ import unicodedata
 from typing import Dict, Any, List, Optional
 from database.db import get_db_connection
 from services.rag_rules import (
-    available_variants, fold, matching_sizes, matching_variants, nearest_size, normalize_size,
+    available_variants, detect_category_hint as _detect_category_hint,
+    detect_gender as _detect_gender, expand_term_groups as _expand_term_groups,
+    fold, matching_sizes, matching_variants, nearest_size, normalize_size,
     requested_fabrics, size_guide_rows, valid_measurements,
 )
 
 # ---------------------------------------------------------------- tiện ích
-SYNONYMS = {
-    "thể thao": ["thể thao", "sport", "năng động", "thoáng", "dry", "thun"],
-    "công sở": ["công sở", "lịch sự", "sơ mi", "thanh lịch", "tây"],
-    "đi chơi": ["đi chơi", "casual", "basic", "dạo phố", "streetwear"],
-    "đi làm": ["công sở", "lịch sự", "sơ mi", "thanh lịch"],
-    "dự tiệc": ["dự tiệc", "tiệc", "sang trọng", "đầm", "dạ hội"],
-    "đi biển": ["đi biển", "linen", "đũi", "mát", "thoáng"],
-    "mùa đông": ["khoác", "len", "nỉ", "dạ", "ấm"],
-    "mùa mưa": ["chống nước", "khoác", "gió"],
-    "thoáng mát": ["thoáng mát", "thoáng", "mỏng nhẹ", "thoáng khí"],
-}
-
-STOP_WORDS = {
-    "tôi", "mình", "em", "anh", "chị", "bạn", "của", "và", "với", "thì",
-    "nên", "mua", "nào", "gì", "cho", "có", "không", "k", "ko", "shop",
-    "ạ", "nhé", "được", "tư", "vấn", "giúp", "muốn", "cần", "tìm", "xem",
-    "cao", "nặng", "kí", "kg", "cm", "m", "hơi", "rất", "quá", "lắm",
-    "thế", "sao", "đi", "lại", "đang", "đã", "sẽ", "là", "ở", "này", "đó",
-    "một", "vài", "cái", "chiếc", "bộ", "mẫu"
-}
-
 PRODUCT_MATCH_THRESHOLD = 0.6
 PRODUCT_CLARIFY_THRESHOLD = 0.4
 
@@ -49,53 +30,9 @@ def _norm(text: Any) -> str:
     return unicodedata.normalize("NFC", str(text or "")).lower().strip()
 
 
-def _detect_gender(text: str) -> Optional[str]:
-    txt = _norm(text)
-    has_female = re.search(r"\b(?:nữ|nu|gái|vợ|mẹ|cô ấy|đầm|váy)\b", txt)
-    has_male = re.search(r"\b(?:nam|trai|chồng|bố|anh ấy|ông)\b", txt)
-    if has_male and not has_female:
-        return "nam"
-    if has_female and not has_male:
-        return "nữ"
-    return None
-
-
-def _detect_category_hint(text: str) -> Optional[str]:
-    txt = fold(text)
-    original = _norm(text)
-    if re.search(r"\bso mi\b", txt):
-        return "sơ mi"
-    if re.search(r"\b(?:khoac|blazer|bomber|cardigan)\b", txt):
-        return "áo khoác"
-    if re.search(r"\b(?:áo|ao|polo|thun)\b", original):
-        return "áo"
-    if re.search(r"\b(?:quần|quan|jeans?|kaki|jogger|short)\b", original):
-        return "quần"
-    if re.search(r"\b(?:đầm|dam|váy|vay)\b", original):
-        return "đầm & váy"
-    return None
-
-
-def _connect():
-    conn = get_db_connection()
-    # SQLite LIKE folds ASCII only. Register the catalog normalizers.
-    conn.create_function("fold_vn", 1, fold)
-    conn.create_function("normalize_size", 1, normalize_size)
-    return conn
-
-
-def _expand_term_groups(keyword: str) -> List[List[str]]:
-    kw = _norm(keyword)
-    groups: List[List[str]] = []
-    for key, vals in SYNONYMS.items():
-        if key in kw:
-            groups.append(list(dict.fromkeys(_norm(v) for v in vals)))
-            kw = kw.replace(key, " ")
-
-    # Synonyms are alternatives for one user concept, not separate requirements.
-    raw_words = [w for w in re.findall(r"[^\W_]+", kw) if len(w) > 1 and w not in STOP_WORDS]
-    groups.extend([[word] for word in raw_words])
-    return groups[:10]
+# Compatibility alias for the existing order-lookup regression seam. It is the
+# shared database connection function, with no agentic-specific setup.
+_connect = get_db_connection
 
 
 def _run_search(conn, category: str, terms: List[Any], max_price: float,
@@ -231,7 +168,7 @@ def db_search_products(category: str = "", keyword: str = "", max_price: float =
     keyword: phong cách / dịp / chất liệu (vd 'thể thao', 'công sở', 'linen'). max_price: giá tối đa VNĐ (0 = không giới hạn).
     size, color: biến thể yêu cầu. height_cm, weight_kg: số đo. material: chất liệu khách yêu cầu.
     Trả về OK, CLARIFY, NO_MATCH hoặc OUT_OF_STOCK theo dữ liệu."""
-    conn = _connect()
+    conn = get_db_connection()
     try:
         conn.execute("BEGIN")
         combined_text = f"{category} {keyword}".strip()
@@ -256,10 +193,6 @@ def db_search_products(category: str = "", keyword: str = "", max_price: float =
         fabrics = requested_fabrics(material or keyword)
         if fabrics:
             search_options["fabrics"] = fabrics
-            conn.create_function(
-                "has_fabric", 2,
-                lambda value, fabric: bool(re.search(r"\b" + re.escape(fabric) + r"\b", fold(value))),
-            )
         specificity = 1.0 if category or cat_hint or len(term_groups) > 1 else 0.5
         variants_by_product = defaultdict(list)
         if has_measurements:
@@ -387,7 +320,7 @@ def db_stock_by_sku(sku):
 
 def db_check_variant_stock(product_name: str, color: str = "", size: str = "") -> Dict[str, Any]:
     """Kiểm tra tồn kho theo màu và size của một mẫu đang hiển thị."""
-    conn = _connect()
+    conn = get_db_connection()
     try:
         conn.execute("BEGIN")
         product = _find_public_product(conn, product_name)
@@ -425,7 +358,7 @@ def db_recommend_size(height_cm: float, weight_kg: float, gender: str = "",
             "recommended_size": None,
             "note": "Bạn kiểm tra lại chiều cao và cân nặng giúp mình nhé.",
         }
-    conn = _connect()
+    conn = get_db_connection()
     try:
         conn.execute("BEGIN")
         product = _find_public_product(conn, product_name)
@@ -473,7 +406,7 @@ def db_recommend_size(height_cm: float, weight_kg: float, gender: str = "",
 
 def db_suggest_outfit(product_name: str, limit: int = 3) -> Dict[str, Any]:
     """Gợi ý các món phối cùng (khác loại, cùng phong cách, còn hàng) với một sản phẩm đã chọn để bán kèm."""
-    conn = _connect()
+    conn = get_db_connection()
     try:
         conn.execute("BEGIN")
         base = _find_public_product(conn, product_name)

@@ -5,18 +5,25 @@ Hỗ trợ: CRUD, Trigger, Indexes, Stored Procedure (Transaction ACID)
 import sqlite3
 import os
 import json
-from datetime import datetime
+import logging
+import uuid
+from datetime import datetime, timedelta
 import hashlib
 import hmac
 import secrets
+from services.rag_rules import fold, has_fabric, normalize_size
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'store.db')
+DB_PATH = os.environ.get('AURA_DB_PATH') or os.path.join(os.path.dirname(__file__), 'store.db')
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), 'schema.sql')
+logger = logging.getLogger(__name__)
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.create_function("fold_vn", 1, fold)
+    conn.create_function("normalize_size", 1, normalize_size)
+    conn.create_function("has_fabric", 2, has_fabric)
     return conn
 
 def init_db():
@@ -211,7 +218,7 @@ def seed_sample_data():
 
     conn.commit()
     conn.close()
-    print("Database initialized and sample data seeded successfully!")
+    logger.info("Database initialized and sample data seeded successfully")
 
 # ========================================================
 # CÁC HÀM MÔ PHỎNG STORED PROCEDURE & ACID TRANSACTIONS
@@ -222,110 +229,102 @@ def sp_create_order_and_deduct_stock(customer_info, cart_items, payment_method="
     Thủ tục mô phỏng Stored Procedure tạo đơn hàng và trừ kho an toàn (ACID Transaction).
     Nếu bất kỳ biến thể nào không đủ tồn kho, Transaction sẽ ROLLBACK ngay lập tức.
     """
+    expire_pending_orders()
+    if not isinstance(cart_items, list) or not 1 <= len(cart_items) <= 30:
+        return {'success': False, 'error': 'Giỏ hàng phải có từ 1 đến 30 dòng.'}
+
+    quantities = {}
+    for item in cart_items:
+        if not isinstance(item, dict):
+            return {'success': False, 'error': 'Dữ liệu sản phẩm trong giỏ không hợp lệ.'}
+        variant_id, quantity = item.get('variant_id'), item.get('quantity')
+        if type(variant_id) is not int or variant_id < 1:
+            return {'success': False, 'error': 'Mã biến thể phải là số nguyên dương.'}
+        if type(quantity) is not int or not 1 <= quantity <= 20:
+            return {'success': False, 'error': 'Số lượng mỗi sản phẩm phải từ 1 đến 20.'}
+        quantities[variant_id] = quantities.get(variant_id, 0) + quantity
+        if quantities[variant_id] > 20:
+            return {'success': False, 'error': 'Tổng số lượng mỗi biến thể không được vượt quá 20.'}
+
+    customer_info = customer_info if isinstance(customer_info, dict) else {}
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("BEGIN TRANSACTION;")
-        
-        # 1. Kiểm tra tồn kho từng mặt hàng
+        cursor.execute("BEGIN IMMEDIATE")
         total_amount = 0.0
         validated_items = []
-        for item in cart_items:
-            variant_id = item['variant_id']
-            qty = int(item['quantity'])
-            
+        for variant_id, qty in quantities.items():
             cursor.execute("""
                 SELECT pv.id, pv.stock_quantity, pv.sku, p.name, p.discount_price, p.price
-                FROM product_variants pv
-                JOIN products p ON pv.product_id = p.id
-                WHERE pv.id = ?
+                FROM product_variants pv JOIN products p ON pv.product_id = p.id
+                WHERE pv.id = ? AND p.is_published = 1
             """, (variant_id,))
             variant = cursor.fetchone()
-            
             if not variant:
-                raise ValueError(f"Biến thể mã ID {variant_id} không tồn tại!")
-            
+                raise ValueError(f"Biến thể mã ID {variant_id} không tồn tại hoặc không còn bán.")
             if variant['stock_quantity'] < qty:
-                raise ValueError(f"Sản phẩm '{variant['name']} ({variant['sku']})' chỉ còn {variant['stock_quantity']} chiếc, không đủ {qty} chiếc yêu cầu!")
-            
-            price = variant['discount_price'] if variant['discount_price'] else variant['price']
+                raise ValueError(
+                    f"Sản phẩm '{variant['name']} ({variant['sku']})' chỉ còn "
+                    f"{variant['stock_quantity']} chiếc, không đủ {qty} chiếc yêu cầu."
+                )
+            price = variant['discount_price'] if variant['discount_price'] is not None else variant['price']
             subtotal = price * qty
             total_amount += subtotal
-            
             validated_items.append({
-                'variant_id': variant_id,
-                'quantity': qty,
-                'unit_price': price,
-                'subtotal': subtotal
+                'variant_id': variant_id, 'quantity': qty,
+                'unit_price': price, 'subtotal': subtotal,
             })
 
-        # 2. Tạo đơn hàng mới
-        order_code = f"ORD-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        order_code = f"ORD-{uuid.uuid4().hex[:10].upper()}"
         cursor.execute("""
-            INSERT INTO orders (order_code, customer_name, customer_phone, customer_address, total_amount, status, payment_method)
+            INSERT INTO orders (order_code, customer_name, customer_phone, customer_address,
+                                total_amount, status, payment_method)
             VALUES (?, ?, ?, ?, ?, 'PENDING_PAYMENT', ?)
         """, (
-            order_code,
-            customer_info.get('name', 'Khách mua hàng'),
+            order_code, customer_info.get('name', 'Khách mua hàng'),
             customer_info.get('phone', '0901234567'),
             customer_info.get('address', '123 Đường Mẫu, Q. Ninh Kiều, Cần Thơ'),
-            total_amount,
-            payment_method
+            total_amount, payment_method,
         ))
         order_id = cursor.lastrowid
-
-        # 3. Chèn các mặt hàng vào order_items & trừ tồn kho (Kích hoạt Trigger kiểm tra)
-        for v in validated_items:
+        for item in validated_items:
+            cursor.execute("""
+                UPDATE product_variants SET stock_quantity = stock_quantity - ?
+                WHERE id = ? AND stock_quantity >= ?
+            """, (item['quantity'], item['variant_id'], item['quantity']))
+            if cursor.rowcount != 1:
+                raise ValueError('Tồn kho vừa thay đổi. Vui lòng kiểm tra giỏ hàng và thử lại.')
             cursor.execute("""
                 INSERT INTO order_items (order_id, variant_id, quantity, unit_price, subtotal)
                 VALUES (?, ?, ?, ?, ?)
-            """, (order_id, v['variant_id'], v['quantity'], v['unit_price'], v['subtotal']))
-            
-            cursor.execute("""
-                UPDATE product_variants 
-                SET stock_quantity = stock_quantity - ?
-                WHERE id = ?
-            """, (v['quantity'], v['variant_id']))
+            """, (order_id, item['variant_id'], item['quantity'], item['unit_price'], item['subtotal']))
 
-          # 4. Tao ban ghi thanh toan ao
-            trans_code = f"TRX-{datetime.now().strftime('%Y%m%d%H%M')}-{order_id}"
-
-            cursor.execute("""
-                INSERT INTO payments (
-                    order_id, transaction_code, amount, status
-                )
-                VALUES (?, ?, ?, 'PENDING')
-            """, (order_id, trans_code, total_amount))
-
-            # 5. Lien ket don hang voi Customer
-            if customer_user_id is not None:
-                cursor.execute(
-                    """
-                    INSERT INTO customer_order_links (order_id, user_id)
-                    VALUES (?, ?)
-                    """,
-                    (order_id, customer_user_id)
-                )
-
-            conn.commit()
-
-            return {
-                'success': True,
-                'order_id': order_id,
-                'order_code': order_code,
-                'transaction_code': trans_code,
-                'total_amount': total_amount
-            }
-    except Exception as e:
-        conn.rollback()
+        trans_code = f"TRX-{uuid.uuid4().hex[:10].upper()}"
+        cursor.execute(
+            "INSERT INTO payments (order_id, transaction_code, amount, status) VALUES (?, ?, ?, 'PENDING')",
+            (order_id, trans_code, total_amount),
+        )
+        if customer_user_id is not None:
+            cursor.execute(
+                "INSERT INTO customer_order_links (order_id, user_id) VALUES (?, ?)",
+                (order_id, customer_user_id),
+            )
+        conn.commit()
         return {
-            'success': False,
-            'error': str(e)
+            'success': True, 'order_id': order_id, 'order_code': order_code,
+            'transaction_code': trans_code, 'total_amount': total_amount,
         }
+    except ValueError as e:
+        conn.rollback()
+        return {'success': False, 'error': str(e)}
+    except Exception:
+        conn.rollback()
+        logger.exception("Order creation failed")
+        return {'success': False, 'error': 'Không thể tạo đơn hàng. Vui lòng thử lại.'}
     finally:
         conn.close()
 
-def sp_process_payment_webhook(transaction_code, status="SUCCESS", *, customer_user_id):
+def sp_process_payment_webhook(transaction_code, status="SUCCESS", *, customer_user_id=None):
     """
     Thủ tục xử lý Webhook khi cổng thanh toán ảo trả về kết quả (SUCCESS / CANCELLED / FAILED)
     """
@@ -337,17 +336,19 @@ def sp_process_payment_webhook(transaction_code, status="SUCCESS", *, customer_u
             SELECT p.order_id, p.status, o.status AS order_status
             FROM payments p
             JOIN orders o ON o.id = p.order_id
-            JOIN customer_order_links l ON l.order_id = p.order_id
-            WHERE p.transaction_code = ? AND l.user_id = ?
-        """, (transaction_code, customer_user_id))
+            LEFT JOIN customer_order_links l ON l.order_id = p.order_id
+            WHERE p.transaction_code = ? AND (? IS NULL OR l.user_id = ?)
+        """, (transaction_code, customer_user_id, customer_user_id))
         payment = cursor.fetchone()
         if not payment:
             return {'success': False, 'error_code': 'PAYMENT_NOT_FOUND', 'error': 'Không tìm thấy giao dịch của bạn.'}
 
-        if payment['status'] == status:
-            return {'success': True, 'order_id': payment['order_id'], 'new_status': payment['order_status']}
         if payment['status'] != 'PENDING' or payment['order_status'] != 'PENDING_PAYMENT':
-            return {'success': False, 'error_code': 'PAYMENT_ALREADY_PROCESSED', 'error': 'Giao dịch đã được xử lý.'}
+            conn.commit()
+            return {
+                'success': True, 'duplicate': True,
+                'order_id': payment['order_id'], 'new_status': payment['order_status'],
+            }
 
         order_id = payment['order_id']
 
@@ -355,16 +356,22 @@ def sp_process_payment_webhook(transaction_code, status="SUCCESS", *, customer_u
         cursor.execute("""
             UPDATE payments 
             SET status = ?
-            WHERE transaction_code = ?
+            WHERE transaction_code = ? AND status = 'PENDING'
         """, (status, transaction_code))
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return {'success': False, 'error_code': 'PAYMENT_ALREADY_PROCESSED', 'error': 'Giao dịch đã được xử lý.'}
 
         # Cập nhật trạng thái đơn hàng (sẽ kích hoạt trigger trg_track_order_status)
         new_order_status = 'PAID' if status == 'SUCCESS' else 'CANCELLED'
         cursor.execute("""
             UPDATE orders 
             SET status = ?
-            WHERE id = ?
+            WHERE id = ? AND status = 'PENDING_PAYMENT'
         """, (new_order_status, order_id))
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return {'success': False, 'error_code': 'PAYMENT_ALREADY_PROCESSED', 'error': 'Đơn hàng đã được xử lý.'}
 
         # Hoàn tồn kho một lần khi giao dịch không thành công.
         if status in ('CANCELLED', 'FAILED'):
@@ -378,15 +385,44 @@ def sp_process_payment_webhook(transaction_code, status="SUCCESS", *, customer_u
                 """, (it['quantity'], it['variant_id']))
 
         conn.commit()
-        return {'success': True, 'order_id': order_id, 'new_status': new_order_status}
-    except Exception as e:
+        return {'success': True, 'duplicate': False, 'order_id': order_id, 'new_status': new_order_status}
+    except Exception:
         conn.rollback()
-        return {'success': False, 'error': str(e)}
+        logger.exception("Payment callback processing failed")
+        return {'success': False, 'error_code': 'DATABASE_ERROR', 'error': 'Không thể cập nhật giao dịch.'}
     finally:
         conn.close()
 
+def expire_pending_orders(now=None):
+    """Cancel pending payments older than 15 minutes through the webhook path."""
+    current_time = now or datetime.utcnow()
+    cutoff = (current_time - timedelta(minutes=15)).strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db_connection()
+    try:
+        expired = conn.execute("""
+            SELECT p.transaction_code, l.user_id
+            FROM payments p
+            JOIN orders o ON o.id = p.order_id
+            LEFT JOIN customer_order_links l ON l.order_id = o.id
+            WHERE p.status = 'PENDING' AND o.status = 'PENDING_PAYMENT'
+              AND o.created_at <= ?
+        """, (cutoff,)).fetchall()
+    finally:
+        conn.close()
+
+    count = 0
+    for payment in expired:
+        result = sp_process_payment_webhook(
+            payment['transaction_code'], 'CANCELLED', customer_user_id=payment['user_id']
+        )
+        if result.get('success') and not result.get('duplicate'):
+            count += 1
+    return count
+
+
 def get_all_products(category_id=None, search=None):
     """Lấy danh sách sản phẩm kèm tổng số lượng tồn kho và các biến thể"""
+    expire_pending_orders()
     conn = get_db_connection()
     cursor = conn.cursor()
     conn.execute("BEGIN")
@@ -430,6 +466,7 @@ def get_all_products(category_id=None, search=None):
     return products
 
 def get_product_by_id(product_id):
+    expire_pending_orders()
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -450,6 +487,7 @@ def get_product_by_id(product_id):
 
 def get_db_stats():
     """Hàm thống kê phục vụ giảng viên kiểm tra Database, Trigger, Order logs"""
+    expire_pending_orders()
     conn = get_db_connection()
     cursor = conn.cursor()
     

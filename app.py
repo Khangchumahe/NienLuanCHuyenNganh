@@ -13,6 +13,7 @@ from flask import Flask, Response, abort, render_template, request, jsonify, ses
 from functools import wraps
 import os
 import secrets
+from werkzeug.exceptions import HTTPException
 
 load_dotenv()
 
@@ -23,20 +24,39 @@ from database.db import (
 )
 from services.rag_engine import rag_service
 from services.payment_service import (
-    generate_checksum, process_mock_payment_callback,
+    generate_checksum, verify_checksum, process_mock_payment_callback,
     create_zalopay_order_payload, OFFICIAL_TEST_CARDS, OFFICIAL_WALLETS,
     process_card_or_wallet_payment
 )
 
 app = Flask(__name__)
-# Thiết lập FLASK_SECRET_KEY trong môi trường khi triển khai thật.
-app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
+app.secret_key = os.environ.get('SECRET_KEY') or os.environ.get('FLASK_SECRET_KEY')
+if not app.secret_key and os.environ.get('APP_ENV', '').lower() == 'development':
+    app.secret_key = secrets.token_hex(32)
+if not app.secret_key:
+    raise RuntimeError('SECRET_KEY phải được cấu hình trong môi trường.')
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
     SESSION_COOKIE_SECURE=os.environ.get('FLASK_COOKIE_SECURE') == '1',
     MAX_CONTENT_LENGTH=1024 * 1024,
 )
+
+
+@app.errorhandler(HTTPException)
+def handle_http_error(error):
+    messages = {
+        400: 'Yêu cầu không hợp lệ.', 403: 'Bạn không có quyền thực hiện thao tác này.',
+        404: 'Không tìm thấy nội dung yêu cầu.',
+        405: 'Phương thức yêu cầu không được hỗ trợ.', 429: 'Bạn gửi yêu cầu quá nhanh. Vui lòng thử lại sau.',
+    }
+    return jsonify(success=False, error=messages.get(error.code, 'Yêu cầu không thể xử lý.')), error.code
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    app.logger.exception('Unhandled request error')
+    return jsonify(success=False, error='Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.'), 500
 
 
 def current_user():
@@ -182,6 +202,8 @@ def api_checkout():
         return jsonify(success=False, error='Gio hang dang trong!'), 400
 
     # Tao don, tru kho va lien ket Customer trong transaction
+    from database.db import expire_pending_orders
+    expire_pending_orders()
     result = sp_create_order_and_deduct_stock(
         customer_info,
         cart_items,
@@ -277,6 +299,13 @@ def api_payment_callback():
     if status not in ('SUCCESS', 'CANCELLED', 'FAILED'):
         return jsonify(success=False, error='Trạng thái thanh toán không hợp lệ.'), 400
 
+    amount = data.get('amount')
+    checksum = data.get('checksum')
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not isinstance(checksum, str):
+        return jsonify(success=False, error='Thiếu chữ ký hoặc số tiền giao dịch.'), 403
+    if not verify_checksum(transaction_code.strip(), amount, checksum):
+        return jsonify(success=False, error='Chữ ký giao dịch không hợp lệ.'), 403
+
     result = process_mock_payment_callback(transaction_code.strip(), status, customer_user_id=g.user['id'])
     # Cập nhật lại kho cho RAG
     if result['success']:
@@ -318,8 +347,8 @@ def api_ai_chat():
     if not isinstance(message, str) or not message.strip():
         return jsonify(success=False, error='Vui lòng nhập tin nhắn hợp lệ'), 400
     message = message.strip()
-    if len(message) > 2000:
-        return jsonify(success=False, error='Tin nhắn tối đa 2.000 ký tự'), 400
+    if len(message) > 500:
+        return jsonify(success=False, error='Tin nhắn tối đa 500 ký tự'), 400
     if not _chat_rate_allowed(request.remote_addr):
         return jsonify(success=False, error='Bạn gửi nhiều tin nhắn quá nhanh. Hãy thử lại sau ít phút.'), 429, {
             'Retry-After': '60',
@@ -329,7 +358,7 @@ def api_ai_chat():
     if not isinstance(history, list):
         history = []
     history = [
-        {'role': entry['role'], 'content': entry['content'].strip()[:2000]}
+        {'role': entry['role'], 'content': entry['content'].strip()[:500]}
         for entry in history[-12:]
         if isinstance(entry, dict)
         and entry.get('role') in ('user', 'assistant')
@@ -436,8 +465,5 @@ register_customer_routes(
 
 
 if __name__ == '__main__':
-    print("=" * 60)
-    print("🚀 ĐANG KHỞI CHẠY HỆ THỐNG CỬA HÀNG THỜI TRANG TÍCH HỢP RAG AI")
-    print("🔗 Địa chỉ truy cập: http://127.0.0.1:5000")
-    print("=" * 60)
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    app.logger.info("Đang khởi chạy AURA Fashion tại http://127.0.0.1:5000")
+    app.run(host='127.0.0.1', port=5000, debug=os.environ.get('FLASK_DEBUG') == '1')

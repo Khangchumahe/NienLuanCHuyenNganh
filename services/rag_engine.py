@@ -10,33 +10,35 @@ Cơ chế hoạt động 4 bước chuẩn Kỹ thuật phần mềm:
 from collections import Counter
 import math
 import re
+from threading import RLock
 import unicodedata
 from database.db import get_all_products
-from services.agentic_tools import _detect_category_hint, _detect_gender, _expand_term_groups
 from services.rag_rules import (
-    HEIGHT, STOCK_QUESTION, WEIGHT, catalog_query, fold, matching_sizes, matching_variants,
+    HEIGHT, STOP_WORDS, STOCK_QUESTION, WEIGHT, catalog_query, detect_category_hint,
+    detect_gender, expand_term_groups, fold, matching_sizes, matching_variants,
     normalize_size, query_constraints, recommendation_intro, requested_fabrics, selling_price,
     stock_summary, valid_measurements,
 )
 
 
-STOP_WORDS = {
-    "tôi", "mình", "em", "anh", "chị", "bạn", "của", "và", "với", "thì",
-    "nên", "mua", "nào", "gì", "cho", "có", "không", "k", "ko", "shop",
-    "ạ", "nhé", "được", "tư", "vấn", "giúp", "muốn", "cần", "tìm", "xem",
-    "cao", "nặng", "kí", "kg", "cm", "m", "hơi", "rất", "quá", "lắm",
-    "thế", "sao", "đi", "lại", "đang", "đã", "sẽ", "là", "ở", "này", "đó",
-    "một", "vài", "cái", "chiếc", "bộ", "mẫu"
-}
+def _synchronized(method):
+    def wrapped(self, *args, **kwargs):
+        with self._data_lock:
+            return method(self, *args, **kwargs)
+    return wrapped
+
+
 MIN_COSINE_MATCH_SCORE = 0.15
 MIN_COSINE_CLARIFY_SCORE = 0.1
 
 class RAGEngine:
     def __init__(self):
+        self._data_lock = RLock()
         self.knowledge_base = []
         self.idf = {}
         self.sync_knowledge_base()
 
+    @_synchronized
     def sync_knowledge_base(self):
         """
         Bước 1: Ingestion & Chunking
@@ -90,6 +92,7 @@ class RAGEngine:
             if len(token) > 1 and token not in STOP_WORDS
         ]
 
+    @_synchronized
     def _compute_cosine_similarity(self, query_tokens, doc_tokens):
         query = Counter(query_tokens)
         document = Counter(doc_tokens)
@@ -102,13 +105,14 @@ class RAGEngine:
         length = math.hypot(*query_vector.values()) * math.hypot(*doc_vector.values())
         return round(dot / length, 4)
 
+    @_synchronized
     def retrieve(self, query, top_k=3, *, in_stock_only=True):
         constraints = query_constraints(query)
         clean_query = catalog_query(query)
         query_tokens = self._tokenize(clean_query)
-        groups = _expand_term_groups(clean_query)
-        gender = _detect_gender(clean_query)
-        category_hint = _detect_category_hint(clean_query)
+        groups = expand_term_groups(clean_query)
+        gender = detect_gender(clean_query)
+        category_hint = detect_category_hint(clean_query)
         fabrics = requested_fabrics(clean_query)
         height, weight = constraints["height"], constraints["weight"]
         has_measurements = height is not None or weight is not None
@@ -172,6 +176,7 @@ class RAGEngine:
         qualified = [doc for doc in scored if doc["similarity_score"] >= MIN_COSINE_MATCH_SCORE]
         return (qualified or scored)[:top_k]
 
+    @_synchronized
     def named_products(self, query):
         normalized = fold(query)
         names = [
@@ -207,6 +212,7 @@ class RAGEngine:
         )
         return full_prompt
 
+    @_synchronized
     def generate_response(self, query):
         """
         Bước 4: Generation & Tạo RAG Trace (Minh chứng trực quan luồng RAG)
@@ -231,6 +237,7 @@ class RAGEngine:
                 'answer': answer,
                 'recommended_products': [],
                 'rag_trace': {
+                    'generation_mode': 'template',
                     'query': query,
                     'query_tokens': self._tokenize(query),
                     'retrieved_count': 0,
@@ -248,6 +255,7 @@ class RAGEngine:
                 ),
                 'recommended_products': [],
                 'rag_trace': {
+                    'generation_mode': 'template',
                     'query': query,
                     'query_tokens': self._tokenize(query),
                     'retrieved_count': 0,
@@ -281,6 +289,7 @@ class RAGEngine:
             'answer': answer,
             'recommended_products': recommended_products,
             'rag_trace': {
+                'generation_mode': 'template',
                 'query': query,
                 'outcome': 'OK',
                 'query_tokens': self._tokenize(query),

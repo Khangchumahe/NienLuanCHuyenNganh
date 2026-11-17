@@ -4,7 +4,7 @@
  */
 
 let allProducts = [];
-let currentCart = JSON.parse(localStorage.getItem('aura_cart') || '[]');
+let currentCart = loadStoredCart();
 let activeCategory = '';
 let currentSelectedProduct = null;
 let currentPendingPayment = null;
@@ -68,9 +68,29 @@ function setupEventListeners() {
   if (btnProceed) {
     btnProceed.addEventListener('click', handleCheckout);
   }
+  document.getElementById('btnResumePendingPayment').addEventListener('click', resumePendingPayment);
+  document.getElementById('btnCancelPendingPayment').addEventListener('click', () => handleMockPaymentCallback('CANCELLED'));
 
   // Nút Thêm vào giỏ từ Modal Chi tiết
   document.getElementById('btnAddToCartModal').addEventListener('click', handleAddToCartFromModal);
+
+  // Dynamic product actions use delegation instead of inline handlers.
+  document.getElementById('productGrid').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-product-id]');
+    if (button) showProductDetailModal(Number(button.dataset.productId), { chooseVariant: true });
+  });
+  document.getElementById('cartItemsList').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-cart-index]');
+    if (button) removeCartItem(Number(button.dataset.cartIndex));
+  });
+  document.getElementById('sampleCreditCardsList').addEventListener('click', (event) => {
+    const card = event.target.closest('[data-credit-card-id]');
+    if (card) selectSampleCreditCard(card.dataset.creditCardId);
+  });
+  document.getElementById('sampleNapasCardsList').addEventListener('click', (event) => {
+    const card = event.target.closest('[data-napas-card-id]');
+    if (card) selectSampleNapasCard(card.dataset.napasCardId);
+  });
 }
 
 // ========================================================
@@ -123,16 +143,16 @@ function renderProductGrid(products) {
 
     card.innerHTML = `
       <div class="card-image-box">
-        <img src="${p.image_url}" alt="${p.name}" loading="lazy">
+        <img src="${escapeHtml(safeImageUrl(p.image_url))}" alt="${escapeHtml(p.name)}" loading="lazy">
         <div class="card-badges">
           ${hasDiscount ? `<span class="badge badge-discount">-${discountPercent}%</span>` : ''}
           <span class="badge badge-stock">Kho: ${p.total_stock}</span>
         </div>
       </div>
       <div class="card-body">
-        <div class="product-cat">${p.category_name}</div>
-        <h4 class="product-title" title="${p.name}">${p.name}</h4>
-        <div class="product-material"><i class="fa-solid fa-scroll"></i> ${p.material}</div>
+        <div class="product-cat">${escapeHtml(p.category_name)}</div>
+        <h4 class="product-title" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</h4>
+        <div class="product-material"><i class="fa-solid fa-scroll" aria-hidden="true"></i> ${escapeHtml(p.material)}</div>
         
         <div class="price-row">
           <span class="current-price">${displayPrice.toLocaleString('vi-VN')} đ</span>
@@ -140,10 +160,10 @@ function renderProductGrid(products) {
         </div>
 
         <div class="card-actions">
-          <button class="btn-view-detail" onclick="openProductDetailModal(${p.id})">
+          <button class="btn-view-detail" data-product-id="${Number(p.id)}" aria-label="Xem chi tiết ${escapeHtml(p.name)}">
             <i class="fa-solid fa-circle-info"></i> Xem chi tiết
           </button>
-          <button class="btn-quick-add" onclick="openProductDetailModal(${p.id})" title="Chọn size & mua">
+          <button class="btn-quick-add" data-product-id="${Number(p.id)}" title="Chọn size & mua" aria-label="Chọn size và thêm ${escapeHtml(p.name)} vào giỏ">
             <i class="fa-solid fa-cart-plus"></i>
           </button>
         </div>
@@ -173,7 +193,8 @@ async function showProductDetailModal(productId, { chooseVariant = false } = {})
     const p = currentSelectedProduct;
 
     document.getElementById('modalProdTitle').innerText = p.name;
-    document.getElementById('modalProdImg').src = p.image_url;
+    document.getElementById('modalProdImg').src = safeImageUrl(p.image_url);
+    document.getElementById('modalProdImg').alt = p.name || 'Ảnh sản phẩm AURA';
     document.getElementById('modalProdCat').innerText = p.category_name;
     document.getElementById('modalProdName').innerText = p.name;
     
@@ -286,7 +307,88 @@ function updateCartBadge() {
   badge.innerText = count;
 }
 
-function openCartModal() {
+async function openCartModal() {
+  const cartIsValid = currentPendingPayment ? true : await refreshCartItems();
+  renderCartItems(cartIsValid);
+  renderPendingPaymentNotice();
+  openModal('cartModal');
+}
+
+function renderPendingPaymentNotice() {
+  const notice = document.getElementById('cartPendingNotice');
+  const checkoutButton = document.getElementById('btnProceedCheckout');
+  notice.hidden = !currentPendingPayment;
+  if (currentPendingPayment) {
+    document.getElementById('cartPendingMessage').textContent =
+      `Đơn ${currentPendingPayment.order_code} đang chờ thanh toán · ${Number(currentPendingPayment.total_amount).toLocaleString('vi-VN')} VNĐ.`;
+  }
+  checkoutButton.disabled = Boolean(currentPendingPayment) || checkoutButton.disabled;
+}
+
+function resumePendingPayment() {
+  if (!currentPendingPayment) return;
+  const payment = currentPendingPayment;
+  document.getElementById('mockOrderCode').textContent = payment.order_code;
+  document.getElementById('mockAmount').textContent = `${Number(payment.total_amount).toLocaleString('vi-VN')} VNĐ`;
+  document.getElementById('zpAppId').textContent = payment.zalopay?.appid ?? '';
+  document.getElementById('zpAppTransId').textContent = payment.zalopay?.apptransid ?? '';
+  document.getElementById('mockChecksum').textContent = payment.zalopay?.mac ?? payment.checksum ?? '';
+  resetZpViews();
+  closeModal('cartModal');
+  openModal('paymentModal');
+  const elapsed = Math.floor((Date.now() - payment.createdAtClient) / 1000);
+  startZpCountdown(Math.max(0, 15 * 60 - elapsed) / 60);
+}
+
+async function refreshCartItems() {
+  if (!currentCart.length) return true;
+  const products = new Map();
+  let changed = false;
+  let available = true;
+  try {
+    for (const item of currentCart) {
+      const productId = Number(item.product_id);
+      if (!products.has(productId)) {
+        const response = await fetch(`/api/products/${productId}`, { cache: 'no-store' });
+        const result = await response.json();
+        products.set(productId, result.success ? result.product : null);
+      }
+      const product = products.get(productId);
+      const variant = product?.variants?.find((entry) => Number(entry.id) === Number(item.variant_id));
+      if (!product || !variant) {
+        item.stock_quantity = 0;
+        item.unavailable = true;
+        available = false;
+        changed = true;
+        continue;
+      }
+      const currentPrice = Number(product.discount_price ?? product.price);
+      const currentStock = Number(variant.stock_quantity);
+      if (Number(item.price) !== currentPrice || Number(item.stock_quantity) !== currentStock) changed = true;
+      if (item.product_name !== product.name || item.color !== variant.color || item.size !== variant.size || item.sku !== variant.sku) changed = true;
+      item.product_name = product.name;
+      item.image_url = safeImageUrl(product.image_url);
+      item.color = variant.color;
+      item.size = variant.size;
+      item.sku = variant.sku;
+      item.price = currentPrice;
+      item.stock_quantity = currentStock;
+      item.unavailable = currentStock < item.quantity;
+      if (item.unavailable) {
+        available = false;
+        changed = true;
+      }
+    }
+    saveCart();
+    if (changed) showToast('Giá hoặc tồn kho trong giỏ đã được cập nhật theo dữ liệu cửa hàng.', 'warning');
+    return available;
+  } catch (error) {
+    showToast('Chưa thể xác nhận giá và tồn kho. Vui lòng thử lại.', 'error');
+    return false;
+  }
+}
+
+function renderCartItems(cartIsValid = true) {
   const listEl = document.getElementById('cartItemsList');
   listEl.innerHTML = '';
 
@@ -302,20 +404,23 @@ function openCartModal() {
   } else {
     let total = 0;
     currentCart.forEach((item, index) => {
-      const itemSubtotal = item.price * item.quantity;
+      const unitPrice = Number(item.price) || 0;
+      const quantity = Number(item.quantity) || 0;
+      const itemSubtotal = unitPrice * quantity;
       total += itemSubtotal;
 
       const itemDiv = document.createElement('div');
       itemDiv.className = 'cart-item';
       itemDiv.innerHTML = `
-        <img src="${item.image_url}" alt="${item.product_name}">
+        <img src="${escapeHtml(safeImageUrl(item.image_url))}" alt="${escapeHtml(item.product_name || 'Ảnh sản phẩm AURA')}">
         <div class="cart-item-info">
-          <div class="cart-item-title">${item.product_name}</div>
-          <div class="cart-item-variant">Màu: ${item.color} | Size: ${item.size} (${item.sku})</div>
-          <div class="cart-item-price">${item.price.toLocaleString('vi-VN')} đ x ${item.quantity} = ${itemSubtotal.toLocaleString('vi-VN')} đ</div>
+          <div class="cart-item-title">${escapeHtml(item.product_name)}</div>
+          <div class="cart-item-variant">Màu: ${escapeHtml(item.color)} | Size: ${escapeHtml(item.size)} (${escapeHtml(item.sku)})</div>
+          <div class="cart-item-price">${unitPrice.toLocaleString('vi-VN')} đ x ${quantity} = ${itemSubtotal.toLocaleString('vi-VN')} đ</div>
+          ${item.unavailable ? `<div class="cart-stock-warning">Chỉ còn ${Number(item.stock_quantity) || 0} sản phẩm; vui lòng cập nhật số lượng hoặc bỏ mặt hàng.</div>` : ''}
         </div>
         <div>
-          <button onclick="removeCartItem(${index})" style="background: none; border: none; color: var(--danger); cursor: pointer; font-size: 16px;">
+          <button data-cart-index="${index}" aria-label="Bỏ ${escapeHtml(item.product_name)} khỏi giỏ" style="background: none; border: none; color: var(--danger); cursor: pointer; font-size: 16px;">
             <i class="fa-solid fa-trash-can"></i>
           </button>
         </div>
@@ -324,10 +429,8 @@ function openCartModal() {
     });
 
     document.getElementById('cartTotalPrice').innerText = `${total.toLocaleString('vi-VN')} VNĐ`;
-    document.getElementById('btnProceedCheckout').disabled = false;
+    document.getElementById('btnProceedCheckout').disabled = !cartIsValid || Boolean(currentPendingPayment);
   }
-
-  openModal('cartModal');
 }
 
 function removeCartItem(index) {
@@ -393,19 +496,19 @@ function renderSampleCards() {
   if (creditContainer) {
     const creditCards = officialTestCards.filter(c => c.category === 'CREDIT');
     creditContainer.innerHTML = creditCards.map(card => `
-      <div class="sample-card-item" id="sampleCard_${card.id}" onclick="selectSampleCreditCard('${card.id}')">
+      <div class="sample-card-item" id="sampleCard_${escapeHtml(card.id)}" data-credit-card-id="${escapeHtml(card.id)}" role="button" tabindex="0">
         <div class="sample-card-top">
-          <span class="sample-card-brand-tag" style="color: ${card.badge_color};">
-            <i class="${card.icon}"></i> ${card.brand}
+          <span class="sample-card-brand-tag" style="color: ${safeCssColor(card.badge_color)};">
+            <i class="${escapeHtml(card.icon)}" aria-hidden="true"></i> ${escapeHtml(card.brand)}
           </span>
           <span style="font-size: 10px; color: ${card.behavior === 'SUCCESS' ? '#16a34a' : '#dc2626'}; font-weight: 700;">
             ${card.behavior === 'SUCCESS' ? '✔ Thành công' : '✖ Demo Lỗi'}
           </span>
         </div>
-        <div class="sample-card-num">${formatCardNumberMasked(card.card_number)}</div>
+        <div class="sample-card-num">${escapeHtml(formatCardNumberMasked(card.card_number))}</div>
         <div class="sample-card-meta">
-          <span>EXP: ${card.expiry_date}</span>
-          <span>CVV: ${card.cvv}</span>
+          <span>EXP: ${escapeHtml(card.expiry_date)}</span>
+          <span>CVV: ${escapeHtml(card.cvv)}</span>
         </div>
         <div class="sample-card-badge-action">
           <i class="fa-solid fa-arrow-pointer"></i> Bấm để dùng thẻ này
@@ -417,17 +520,17 @@ function renderSampleCards() {
   if (napasContainer) {
     const atmCards = officialTestCards.filter(c => c.category === 'ATM');
     napasContainer.innerHTML = atmCards.map(card => `
-      <div class="sample-card-item" id="sampleCard_${card.id}" onclick="selectSampleNapasCard('${card.id}')">
+      <div class="sample-card-item" id="sampleCard_${escapeHtml(card.id)}" data-napas-card-id="${escapeHtml(card.id)}" role="button" tabindex="0">
         <div class="sample-card-top">
-          <span class="sample-card-brand-tag" style="color: ${card.badge_color};">
-            <i class="${card.icon}"></i> ${card.issuer}
+          <span class="sample-card-brand-tag" style="color: ${safeCssColor(card.badge_color)};">
+            <i class="${escapeHtml(card.icon)}" aria-hidden="true"></i> ${escapeHtml(card.issuer)}
           </span>
           <span style="font-size: 10px; color: #16a34a; font-weight: 700;">✔ Thành công</span>
         </div>
-        <div class="sample-card-num">${formatCardNumberMasked(card.card_number)}</div>
+        <div class="sample-card-num">${escapeHtml(formatCardNumberMasked(card.card_number))}</div>
         <div class="sample-card-meta">
-          <span>Chủ thẻ: ${card.card_holder}</span>
-          <span>Hạn: ${card.expiry_date}</span>
+          <span>Chủ thẻ: ${escapeHtml(card.card_holder)}</span>
+          <span>Hạn: ${escapeHtml(card.expiry_date)}</span>
         </div>
         <div class="sample-card-badge-action">
           <i class="fa-solid fa-arrow-pointer"></i> Bấm để dùng thẻ này
@@ -438,7 +541,7 @@ function renderSampleCards() {
 }
 
 function formatCardNumberMasked(num) {
-  const clean = num.replace(/\s+/g, '');
+  const clean = String(num || '').replace(/\s+/g, '');
   if (clean.length >= 16) {
     return `${clean.slice(0, 4)} •••• •••• ${clean.slice(-4)}`;
   }
@@ -464,7 +567,11 @@ function selectSampleCreditCard(cardId) {
   // Cập nhật icon thương hiệu
   const brandIconEl = document.getElementById('ccBrandIcon');
   if (brandIconEl) {
-    brandIconEl.innerHTML = `<i class="${card.icon}" style="color: ${card.badge_color}"></i>`;
+    const icon = document.createElement('i');
+    icon.className = escapeHtml(card.icon || 'fa-solid fa-credit-card');
+    icon.style.color = safeCssColor(card.badge_color);
+    icon.setAttribute('aria-hidden', 'true');
+    brandIconEl.replaceChildren(icon);
   }
 
   showToast(`Đã chọn thẻ mẫu: ${card.issuer} (${card.description})`, 'info');
@@ -530,6 +637,8 @@ async function sendPaymentRequest(url, payload) {
  * Xử lý tiến hành đặt hàng (Checkout)
  */
 async function handleCheckout() {
+  const checkoutButton = document.getElementById('btnProceedCheckout');
+  if (checkoutButton.disabled || currentPendingPayment) return;
   const name = document.getElementById('custName').value.trim();
   const phone = document.getElementById('custPhone').value.trim();
   const address = document.getElementById('custAddress').value.trim();
@@ -544,7 +653,14 @@ async function handleCheckout() {
     return;
   }
 
+  checkoutButton.disabled = true;
   try {
+    const cartIsValid = await refreshCartItems();
+    if (!cartIsValid) {
+      renderCartItems(false);
+      showToast('Giỏ hàng có sản phẩm không đủ tồn kho. Hãy bỏ sản phẩm đó rồi thử lại.', 'warning');
+      return;
+    }
     const payload = {
       customer: { name, phone, address },
       items: currentCart,
@@ -553,7 +669,8 @@ async function handleCheckout() {
 
     const data = await sendPaymentRequest('/api/orders/checkout', payload);
     if (data.success) {
-      currentPendingPayment = data;
+      currentPendingPayment = { ...data, createdAtClient: Date.now() };
+      renderPendingPaymentNotice();
       closeModal('cartModal');
 
       // Điền thông tin vào Header của ZaloPay Gateway Modal
@@ -599,6 +716,8 @@ async function handleCheckout() {
   } catch (err) {
     console.error(err);
     showToast('Lỗi gửi yêu cầu thanh toán!', 'error');
+  } finally {
+    checkoutButton.disabled = Boolean(currentPendingPayment) || currentCart.length === 0;
   }
 }
 
@@ -749,13 +868,13 @@ async function submitOtpVerification() {
       document.getElementById('zpSuccessView').style.display = 'block';
       document.getElementById('zpSuccessReceipt').innerHTML = `
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span>Mã đơn hàng:</span> <strong>#${currentPendingPayment.order_code}</strong>
+          <span>Mã đơn hàng:</span> <strong>#${escapeHtml(currentPendingPayment.order_code)}</strong>
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span>Mã giao dịch ZaloPay:</span> <code>${currentPendingPayment.transaction_code}</code>
+          <span>Mã giao dịch ZaloPay:</span> <code>${escapeHtml(currentPendingPayment.transaction_code)}</code>
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span>Hình thức thanh toán:</span> <strong>${data.card_brand || 'ZaloPay'} (${currentPaymentType})</strong>
+          <span>Hình thức thanh toán:</span> <strong>${escapeHtml(data.card_brand || 'ZaloPay')} (${escapeHtml(currentPaymentType)})</strong>
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
           <span>Số tiền thanh toán:</span> <strong style="color: #16a34a;">${currentPendingPayment.total_amount.toLocaleString('vi-VN')} VNĐ</strong>
@@ -807,7 +926,9 @@ async function handleMockPaymentCallback(status) {
   try {
     const data = await sendPaymentRequest('/api/payment/simulate-callback', {
       transaction_code: currentPendingPayment.transaction_code,
-      status
+      status,
+      amount: currentPendingPayment.total_amount,
+      checksum: currentPendingPayment.checksum,
     });
 
     if (data.success) {
@@ -892,15 +1013,15 @@ async function openSqlAuditModal() {
     body.innerHTML = `
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px;">
         <div style="background: var(--slate-100); padding: 16px; border-radius: 8px; text-align: center;">
-          <div style="font-size: 24px; font-weight: 800; color: var(--primary);">${stats.total_products}</div>
+          <div style="font-size: 24px; font-weight: 800; color: var(--primary);">${Number(stats.total_products) || 0}</div>
           <div style="font-size: 12px; color: var(--slate-600);">Tổng Sản Phẩm (SQL)</div>
         </div>
         <div style="background: var(--slate-100); padding: 16px; border-radius: 8px; text-align: center;">
-          <div style="font-size: 24px; font-weight: 800; color: var(--accent);">${stats.total_variants}</div>
+          <div style="font-size: 24px; font-weight: 800; color: var(--accent);">${Number(stats.total_variants) || 0}</div>
           <div style="font-size: 12px; color: var(--slate-600);">Tổng Biến Thể SKU</div>
         </div>
         <div style="background: var(--slate-100); padding: 16px; border-radius: 8px; text-align: center;">
-          <div style="font-size: 24px; font-weight: 800; color: var(--success);">${stats.total_orders}</div>
+          <div style="font-size: 24px; font-weight: 800; color: var(--success);">${Number(stats.total_orders) || 0}</div>
           <div style="font-size: 12px; color: var(--slate-600);">Tổng Đơn Hàng Đã Tạo</div>
         </div>
       </div>
@@ -920,11 +1041,11 @@ async function openSqlAuditModal() {
         <tbody>
           ${stats.recent_status_logs.length ? stats.recent_status_logs.map(log => `
             <tr>
-              <td>#${log.order_id}</td>
-              <td><span style="color: var(--slate-500);">${log.old_status}</span></td>
-              <td><strong style="color: ${log.new_status === 'PAID' ? 'var(--success)' : 'var(--danger)'};">${log.new_status}</strong></td>
-              <td>${log.note}</td>
-              <td>${log.changed_at}</td>
+              <td>#${Number(log.order_id) || 0}</td>
+              <td><span style="color: var(--slate-500);">${escapeHtml(log.old_status)}</span></td>
+              <td><strong style="color: ${log.new_status === 'PAID' ? 'var(--success)' : 'var(--danger)'};">${escapeHtml(log.new_status)}</strong></td>
+              <td>${escapeHtml(log.note)}</td>
+              <td>${escapeHtml(log.changed_at)}</td>
             </tr>
           `).join('') : '<tr><td colspan="5" style="text-align: center; color: var(--slate-400);">Chưa có đơn hàng nào thay đổi trạng thái</td></tr>'}
         </tbody>
@@ -944,13 +1065,13 @@ async function openSqlAuditModal() {
         <tbody>
           ${stats.recent_inventory_logs.length ? stats.recent_inventory_logs.map(log => `
             <tr>
-              <td>Variant #${log.variant_id}</td>
+              <td>Variant #${Number(log.variant_id) || 0}</td>
               <td style="color: ${log.change_quantity < 0 ? 'var(--danger)' : 'var(--success)'}; font-weight: 700;">
-                ${log.change_quantity > 0 ? '+' : ''}${log.change_quantity}
+                ${Number(log.change_quantity) > 0 ? '+' : ''}${Number(log.change_quantity) || 0}
               </td>
-              <td><strong>${log.remaining_stock}</strong></td>
-              <td>${log.reason}</td>
-              <td>${log.created_at}</td>
+              <td><strong>${Number(log.remaining_stock) || 0}</strong></td>
+              <td>${escapeHtml(log.reason)}</td>
+              <td>${escapeHtml(log.created_at)}</td>
             </tr>
           `).join('') : '<tr><td colspan="5" style="text-align: center; color: var(--slate-400);">Chưa có biến động kho gần đây</td></tr>'}
         </tbody>
@@ -981,12 +1102,16 @@ function showToast(message, type = 'info') {
   const toast = document.createElement('div');
   toast.className = 'toast';
   
-  let icon = 'fa-info-circle';
-  if (type === 'success') icon = 'fa-circle-check';
-  if (type === 'error') icon = 'fa-circle-exclamation';
-  if (type === 'warning') icon = 'fa-triangle-exclamation';
-
-  toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${message}</span>`;
+  const icons = {
+    info: 'fa-info-circle', success: 'fa-circle-check',
+    error: 'fa-circle-exclamation', warning: 'fa-triangle-exclamation'
+  };
+  const icon = document.createElement('i');
+  icon.className = `fa-solid ${icons[type] || icons.info}`;
+  icon.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('span');
+  text.textContent = String(message ?? '');
+  toast.append(icon, text);
   container.appendChild(toast);
 
   setTimeout(() => {
@@ -995,11 +1120,38 @@ function showToast(message, type = 'info') {
 }
 
 function escapeHtml(text) {
-  if (!text) return '';
-  return text
+  if (text === null || text === undefined) return '';
+  return String(text)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function safeImageUrl(url) {
+  const value = String(url ?? '').trim();
+  const local = /^\/static\/(?!\/)[A-Za-z0-9/_?&=.%#-]*$/;
+  const remote = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/[A-Za-z0-9/_?&=.%#-]*)?$/i;
+  return local.test(value) || remote.test(value) ? value : '/static/img/product-placeholder.svg';
+}
+
+function safeCssColor(value) {
+  const color = String(value ?? '');
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : '#1a1f71';
+}
+
+function loadStoredCart() {
+  try {
+    const value = JSON.parse(localStorage.getItem('aura_cart') || '[]');
+    if (!Array.isArray(value)) return [];
+    return value.filter((item) => item && Number.isSafeInteger(Number(item.product_id)) &&
+      Number(item.product_id) > 0 && Number.isSafeInteger(Number(item.variant_id)) &&
+      Number(item.variant_id) > 0 && Number.isSafeInteger(Number(item.quantity)) &&
+      Number(item.quantity) >= 1 && Number(item.quantity) <= 20)
+      .map((item) => ({ ...item, product_id: Number(item.product_id), variant_id: Number(item.variant_id),
+        quantity: Number(item.quantity), price: 0 }));
+  } catch (error) {
+    return [];
+  }
 }

@@ -62,7 +62,13 @@ function record(turn) {
 async function send() {
   const message = input.value.trim();
   if (!message || pending) return;
+  if (message.length > 500) {
+    if (typeof window.showToast === 'function') window.showToast('Tin nhắn tối đa 500 ký tự.', 'warning');
+    return;
+  }
   pending = true;
+  input.disabled = true;
+  document.getElementById('btnSendChat').disabled = true;
   input.value = '';
   const conversation = state.turns.slice(-12).map(({role, content}) => ({role, content}));
   const safeMessage = /(?:\d[ -]?){13,19}/.test(message) && /(?:thẻ|card)/i.test(message)
@@ -94,6 +100,8 @@ async function send() {
   } finally {
     loading.parentElement.remove();
     pending = false;
+    input.disabled = false;
+    document.getElementById('btnSendChat').disabled = false;
   }
 }
 
@@ -166,8 +174,8 @@ function renderCards(botMessage, recommended_products) {
     media.textContent = 'AURA';
     const img = document.createElement('img');
     const imagePath = typeof product.image_url === 'string' ? product.image_url : '';
-    if (/^(\/(?!\/)[^\\]|https?:\/\/)/i.test(imagePath)) {
-      img.alt = '';
+    if (/^(\/static\/(?!\/)[^\\]|https:\/\/)/i.test(imagePath)) {
+      img.alt = String(product.name || 'Ảnh sản phẩm AURA');
       img.addEventListener('error', () => img.remove(), { once: true });
       img.src = imagePath;
       media.appendChild(img);
@@ -253,6 +261,9 @@ function renderRagTraceModal(trace) {
       <div style="font-size: 13px; margin-bottom: 6px;">
         <strong>Phân loại:</strong> ${escapeHtml(intents[trace.intent] ?? '—')}
         · <strong>Kết quả:</strong> ${escapeHtml(outcomes[trace.outcome] ?? '—')}
+      </div>
+      <div style="font-size: 12px; margin-bottom: 6px;">
+        <strong>Chế độ tạo câu trả lời:</strong> ${escapeHtml(trace.generation_mode || 'template')}
       </div>
       <div style="font-size: 12px; color: var(--slate-600);">
         <strong>Từ khóa bóc tách (Query Tokens):</strong>

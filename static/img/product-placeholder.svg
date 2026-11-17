@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 800" role="img" aria-labelledby="title">
+  <title id="title">Ảnh sản phẩm chưa có</title>
+  <rect width="640" height="800" fill="#eef2f7"/>
+  <path d="M220 220l-92 54 52 104 52-26v250h176V352l52 26 52-104-92-54-42 50h-116z" fill="#cbd5e1" stroke="#94a3b8" stroke-width="12" stroke-linejoin="round"/>
+  <text x="320" y="700" text-anchor="middle" fill="#475569" font-family="sans-serif" font-size="28">AURA Fashion</text>
+</svg>

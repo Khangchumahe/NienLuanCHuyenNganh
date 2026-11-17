@@ -10,15 +10,20 @@ Tích hợp chuẩn cổng thanh toán chính thức của ZaloPay & MoMo Sandbo
 import hashlib
 import hmac
 import json
+import os
+import re
 import time
 from datetime import datetime
 from database.db import sp_process_payment_webhook
 
-# Cấu hình ZaloPay Sandbox chính thức (Công bố bởi ZaloPay Developer Portal)
+_development = os.environ.get('APP_ENV', '').lower() == 'development'
+
+# Sandbox credentials are supplied through the environment. The development app
+# keeps the simulator usable without credentials; it does not call the gateway.
 ZALOPAY_SANDBOX_CONFIG = {
-    "app_id": 2553,
-    "key1": "sdngKKJmqEMzvhQGrFootNYqPSpueYTr",
-    "key2": "trMrHtvjo6myautxDUiAcYsVtaeQ8nhf",
+    "app_id": int(os.environ.get('ZALOPAY_APP_ID') or (2553 if _development else 0)),
+    "key1": os.environ.get('ZALOPAY_KEY1', ''),
+    "key2": os.environ.get('ZALOPAY_KEY2', ''),
     "endpoint": "https://sb-openapi.zalopay.vn/v2/create",
     "gateway_name": "ZaloPay Sandbox Gateway",
     "version": "2.0"
@@ -26,14 +31,14 @@ ZALOPAY_SANDBOX_CONFIG = {
 
 # Cấu hình MoMo Sandbox
 MOMO_SANDBOX_CONFIG = {
-    "partner_code": "MOMO",
-    "access_key": "F8BBA842ECF85",
-    "secret_key": "K951B6PE1waDMi640xX0qPDpB8d1UETq",
+    "partner_code": os.environ.get('MOMO_PARTNER_CODE', 'MOMO' if _development else ''),
+    "access_key": os.environ.get('MOMO_ACCESS_KEY', ''),
+    "secret_key": os.environ.get('MOMO_SECRET_KEY', ''),
     "endpoint": "https://test-payment.momo.vn/v2/gateway/api/create"
 }
 
 # Key bảo mật mặc định dự phòng cho checksum
-SECRET_KEY = ZALOPAY_SANDBOX_CONFIG["key1"]
+SECRET_KEY = os.environ.get('SECRET_KEY', '')
 
 # =====================================================================
 # DANH SÁCH THẺ TÍN DỤNG & TÀI KHOẢN MẪU HOẠT ĐỘNG ĐƯỢC (TEST CARDS)
@@ -90,7 +95,7 @@ OFFICIAL_TEST_CARDS = [
         "brand": "Napas",
         "card_number": "9704 1985 2619 1432 198",
         "card_holder": "NGUYEN VAN A",
-        "expiry_date": "07/15",
+        "expiry_date": "07/30",
         "cvv": "",
         "otp": "123456",
         "issuer": "Ngân hàng Quốc Dân (NCB)",
@@ -105,7 +110,7 @@ OFFICIAL_TEST_CARDS = [
         "brand": "Napas",
         "card_number": "9704 3666 1234 5678",
         "card_holder": "NGUYEN VAN A",
-        "expiry_date": "03/20",
+        "expiry_date": "03/30",
         "cvv": "",
         "otp": "123456",
         "issuer": "Ngân hàng Ngoại Thương (Vietcombank)",
@@ -244,6 +249,31 @@ def create_zalopay_order_payload(order_code, transaction_code, amount, customer_
 # =====================================================================
 # XỬ LÝ THANH TOÁN BẰNG THẺ TÍN DỤNG MẪU HOẶC VÍ ĐIỆN TỬ
 # =====================================================================
+def _luhn_valid(number):
+    if not number.isdigit() or not 12 <= len(number) <= 19:
+        return False
+    digits = [int(value) for value in number]
+    checksum = 0
+    for index, value in enumerate(reversed(digits)):
+        if index % 2:
+            value *= 2
+            if value > 9:
+                value -= 9
+        checksum += value
+    return checksum % 10 == 0
+
+
+def _expiry_is_valid(expiry, today=None):
+    match = re.fullmatch(r'(0[1-9]|1[0-2])/(\d{2}|\d{4})', str(expiry or '').strip())
+    if not match:
+        return False
+    month = int(match.group(1))
+    year_text = match.group(2)
+    year = int(year_text) + (2000 if len(year_text) == 2 else 0)
+    current = today or datetime.now()
+    return (year, month) >= (current.year, current.month)
+
+
 def process_card_or_wallet_payment(transaction_code, payment_type, card_data=None, wallet_data=None, otp="", *, customer_user_id):
     """
     Xác thực và xử lý thanh toán qua thẻ tín dụng/ghi nợ mẫu hoặc ví ZaloPay/MoMo:
@@ -251,24 +281,42 @@ def process_card_or_wallet_payment(transaction_code, payment_type, card_data=Non
     - Nếu khớp với thẻ từ chối (insufficient funds) -> trả về mã lỗi
     - Nếu thành công -> gọi Stored Procedure cập nhật đơn hàng thành PAID
     """
-    cleaned_card_num = (card_data.get("card_number") or "").replace(" ", "").replace("-", "") if card_data else ""
-    
-    # 1. Kiểm tra trường hợp thẻ lỗi mô phỏng (Declined)
-    if cleaned_card_num == "4000000000000002":
+    if payment_type == 'WALLET':
+        phone = (wallet_data or {}).get('phone', '')
+        wallet = next((item for item in OFFICIAL_WALLETS if item['phone'] == phone), None)
+        if not wallet:
+            return {'success': False, 'error_code': 'INVALID_WALLET', 'message': 'Ví thanh toán không hợp lệ.'}
+        expected_otp = wallet['otp']
+        card_brand = wallet['name']
+    else:
+        if payment_type not in ('ATM', 'CREDIT', 'CREDIT_CARD') or not isinstance(card_data, dict):
+            return {'success': False, 'error_code': 'INVALID_CARD', 'message': 'Thông tin thẻ thanh toán không hợp lệ.'}
+        raw_number = card_data.get('card_number')
+        cleaned_card_num = re.sub(r'[\s-]', '', raw_number) if isinstance(raw_number, str) else ''
+        category = 'ATM' if payment_type == 'ATM' else 'CREDIT'
+        sample = next((item for item in OFFICIAL_TEST_CARDS
+                       if item['category'] == category
+                       and re.sub(r'[\s-]', '', item['card_number']) == cleaned_card_num), None)
+        if not sample or (category == 'CREDIT' and not _luhn_valid(cleaned_card_num)):
+            return {'success': False, 'error_code': 'INVALID_CARD', 'message': 'Số thẻ không khớp thẻ mẫu được hỗ trợ.'}
+        if not _expiry_is_valid(card_data.get('expiry_date')):
+            return {'success': False, 'error_code': 'EXPIRED_CARD', 'message': 'Thẻ đã hết hạn hoặc ngày hết hạn không hợp lệ.'}
+        if category == 'CREDIT' and card_data.get('cvv') != sample.get('cvv'):
+            return {'success': False, 'error_code': 'INVALID_CVV', 'message': 'Mã bảo mật CVV không chính xác.'}
+        expected_otp = sample['otp']
+        card_brand = sample['brand']
+
+    if str(otp) != expected_otp:
+        return {
+            'success': False, 'error_code': 'INVALID_OTP',
+            'message': 'Mã OTP không chính xác. Vui lòng dùng mã mẫu đúng với phương thức đã chọn.',
+        }
+
+    if payment_type != 'WALLET' and sample.get('behavior') == 'INSUFFICIENT_FUNDS':
         return {
             "success": False,
             "error_code": "INSUFFICIENT_FUNDS",
             "message": "Giao dịch bị từ chối: Số dư trong tài khoản thẻ không đủ để thanh toán (Kịch bản Test từ chối thẻ)!"
-        }
-
-    # 2. Kiểm tra OTP 3D Secure
-    # Thẻ ATM yêu cầu OTP 123456, Thẻ Quốc tế và Ví ZaloPay yêu cầu OTP 111111 (hoặc chấp nhận cả hai cho tiện)
-    valid_otps = ["111111", "123456"]
-    if otp not in valid_otps:
-        return {
-            "success": False,
-            "error_code": "INVALID_OTP",
-            "message": "Mã xác thực OTP không chính xác! Vui lòng nhập mã OTP mẫu hiển thị trên màn hình (111111 hoặc 123456)."
         }
 
     # 3. Kích hoạt Stored Procedure & Trigger cập nhật Database
@@ -280,7 +328,7 @@ def process_card_or_wallet_payment(transaction_code, payment_type, card_data=Non
             "transaction_code": transaction_code,
             "order_id": result["order_id"],
             "payment_type": payment_type,
-            "card_brand": card_data.get("brand") if card_data else "ZaloPay Wallet"
+            "card_brand": card_brand
         }
     else:
         return {

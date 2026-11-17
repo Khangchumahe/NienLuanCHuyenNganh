@@ -14,8 +14,6 @@ except ImportError:
     genai = types = None
 
 from services.agentic_tools import (
-    _detect_category_hint,
-    _detect_gender,
     db_check_variant_stock,
     db_lookup_order_for_customer,
     db_recommend_size,
@@ -28,7 +26,8 @@ from services.rag_engine import RAGEngine
 from services.size_chart import recommend_shirt_size
 from services.chat_support import SENSITIVE_CARD, identity_answer, store_answer
 from services.rag_rules import (
-    ORDER_CODE, STOCK_QUESTION, fold, format_price, matching_variants, query_constraints,
+    ORDER_CODE, STOCK_QUESTION, detect_category_hint as _detect_category_hint,
+    detect_gender as _detect_gender, fold, format_price, matching_variants, query_constraints,
     recommendation_intro, requested_fabrics, selling_price, stock_summary, valid_measurements,
 )
 
@@ -260,6 +259,7 @@ def _reply(query, answer, mode, trace=None, *, intent=None, outcome=None):
         "answer": answer, "recommended_products": products,
         "rag_trace": {
             "mode": mode, "intent": intent, "outcome": outcome,
+            "generation_mode": "llm_router + template_render" if mode == "gemini" else "template",
             "query": query, "query_tokens": RAGEngine._tokenize(query),
             "retrieved_count": len(products),
             "retrieved_chunks": [

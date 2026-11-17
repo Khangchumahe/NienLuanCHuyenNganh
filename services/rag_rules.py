@@ -5,6 +5,27 @@ import re
 import unicodedata
 
 
+SYNONYMS = {
+    "thể thao": ["thể thao", "sport", "năng động", "thoáng", "dry", "thun"],
+    "công sở": ["công sở", "lịch sự", "sơ mi", "thanh lịch", "tây"],
+    "đi chơi": ["đi chơi", "casual", "basic", "dạo phố", "streetwear"],
+    "đi làm": ["công sở", "lịch sự", "sơ mi", "thanh lịch"],
+    "dự tiệc": ["dự tiệc", "tiệc", "sang trọng", "đầm", "dạ hội"],
+    "đi biển": ["đi biển", "linen", "đũi", "mát", "thoáng"],
+    "mùa đông": ["khoác", "len", "nỉ", "dạ", "ấm"],
+    "mùa mưa": ["chống nước", "khoác", "gió"],
+    "thoáng mát": ["thoáng mát", "thoáng", "mỏng nhẹ", "thoáng khí"],
+}
+STOP_WORDS = {
+    "tôi", "mình", "em", "anh", "chị", "bạn", "của", "và", "với", "thì",
+    "nên", "mua", "nào", "gì", "cho", "có", "không", "k", "ko", "shop",
+    "ạ", "nhé", "được", "tư", "vấn", "giúp", "muốn", "cần", "tìm", "xem",
+    "cao", "nặng", "kí", "kg", "cm", "m", "hơi", "rất", "quá", "lắm",
+    "thế", "sao", "đi", "lại", "đang", "đã", "sẽ", "là", "ở", "này", "đó",
+    "một", "vài", "cái", "chiếc", "bộ", "mẫu",
+}
+
+
 HEIGHT = r"(?:\d\s*m\s*\d{1,2}|\d[.,]\d+\s*m|\d{2,3}\s*cm)"
 WEIGHT = r"\d{2,3}(?:[.,]\d+)?\s*(?:kg|kí|ký|cân)"
 NUMBER = r"\d{1,10}(?:[.,]\d{1,3}){0,3}"
@@ -26,6 +47,54 @@ STOCK_QUESTION = re.compile(
 def fold(text):
     decomposed = unicodedata.normalize("NFD", str(text or "").casefold())
     return "".join(c for c in decomposed if not unicodedata.combining(c)).replace("đ", "d")
+
+
+def detect_gender(text):
+    normalized = unicodedata.normalize("NFC", str(text or "")).casefold()
+    has_female = re.search(r"\b(?:nữ|nu|gái|vợ|mẹ|cô ấy|đầm|váy)\b", normalized)
+    has_male = re.search(r"\b(?:nam|trai|chồng|bố|anh ấy|ông)\b", normalized)
+    if has_male and not has_female:
+        return "nam"
+    if has_female and not has_male:
+        return "nữ"
+    return None
+
+
+def detect_category_hint(text):
+    normalized = unicodedata.normalize("NFC", str(text or "")).casefold()
+    folded = fold(normalized)
+    if re.search(r"\bso mi\b", folded):
+        return "sơ mi"
+    if re.search(r"\b(?:khoac|blazer|bomber|cardigan)\b", folded):
+        return "áo khoác"
+    if re.search(r"\b(?:áo|ao|polo|thun)\b", normalized):
+        return "áo"
+    if re.search(r"\b(?:quần|quan|jeans?|kaki|jogger|short)\b", normalized):
+        return "quần"
+    if re.search(r"\b(?:đầm|dam|váy|vay)\b", normalized):
+        return "đầm & váy"
+    return None
+
+
+def expand_term_groups(keyword):
+    normalized = unicodedata.normalize("NFC", str(keyword or "")).casefold().strip()
+    groups = []
+    for key, values in SYNONYMS.items():
+        if key in normalized:
+            groups.append(list(dict.fromkeys(
+                unicodedata.normalize("NFC", value).casefold() for value in values
+            )))
+            normalized = normalized.replace(key, " ")
+    words = [
+        word for word in re.findall(r"[^\W_]+", normalized)
+        if len(word) > 1 and word not in STOP_WORDS
+    ]
+    groups.extend([[word] for word in words])
+    return groups[:10]
+
+
+def has_fabric(material, fabric):
+    return bool(re.search(r"\b" + re.escape(str(fabric or "")) + r"\b", fold(material)))
 
 
 def _height_cm(value):

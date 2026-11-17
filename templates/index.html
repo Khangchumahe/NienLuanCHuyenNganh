@@ -230,7 +230,7 @@
           </div>
 
           <div style="display: flex; gap: 10px; align-items: center; margin-top: 20px;">
-            <input type="number" id="modalQuantity" value="1" min="1" max="10" style="width: 70px; padding: 10px; border-radius: 8px; border: 1px solid var(--slate-300); text-align: center; font-weight: 700;">
+            <input type="number" id="modalQuantity" value="1" min="1" max="20" style="width: 70px; padding: 10px; border-radius: 8px; border: 1px solid var(--slate-300); text-align: center; font-weight: 700;">
             <button id="btnAddToCartModal" style="flex: 1; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer;">
               <i class="fa-solid fa-cart-plus"></i> Thêm Vào Giỏ Hàng
             </button>
@@ -252,6 +252,13 @@
       <div class="modal-body">
         <div id="cartItemsList">
           <!-- Render danh sách mặt hàng -->
+        </div>
+        <div id="cartPendingNotice" class="cart-pending-notice" hidden aria-live="polite">
+          <p id="cartPendingMessage"></p>
+          <div class="cart-pending-actions">
+            <button id="btnResumePendingPayment" type="button">Thanh toán lại</button>
+            <button id="btnCancelPendingPayment" type="button">Hủy đơn chờ</button>
+          </div>
         </div>
 
         <div class="cart-total-box">

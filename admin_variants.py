@@ -1,7 +1,7 @@
 """Admin API to create and list product color/size variants; adds no schema changes."""
 import sqlite3
 from flask import Blueprint, jsonify, request
-from database.db import get_db_connection
+from database.db import expire_pending_orders, get_db_connection
 
 
 def register_admin_variant_routes(app, require_admin, require_csrf):
@@ -10,6 +10,7 @@ def register_admin_variant_routes(app, require_admin, require_csrf):
     @bp.get('/api/admin/products/<int:product_id>/variants')
     @require_admin
     def list_variants(product_id):
+        expire_pending_orders()
         conn = get_db_connection()
         try:
             product = conn.execute('SELECT id FROM products WHERE id=?', (product_id,)).fetchone()
