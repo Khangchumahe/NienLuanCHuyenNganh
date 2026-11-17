@@ -28,7 +28,7 @@ NienLuan_origin/
 ├── database/
 │   ├── schema.sql           # Schema SQLite, index và triggers
 │   ├── db.py                # ensure_schema, seed data, CRUD và transaction helpers
-│   └── store.db             # DB SQLite hiện được Git theo dõi
+│   └── store.db             # Tự tạo khi chạy, không được Git theo dõi
 ├── services/
 │   ├── rag_engine.py        # Lexical TF-IDF-style weighting, cosine, bộ lọc và trace
 │   ├── agentic_rag.py       # Gemini function calling và template fallback
@@ -153,6 +153,35 @@ Khi mở một database cũ, ứng dụng tự áp dụng `database/schema.sql` 
 
 Bảng `users` có thể chưa có tài khoản. Dùng mục **Tạo tài khoản demo** phía trên; trong repo không có mật khẩu mặc định. Quyền admin chỉ dành cho role `ADMIN`.
 
+### Dữ liệu mẫu
+
+`database/store.db` không được Git theo dõi. Khi chạy app lần đầu, SQLite tự tạo file, áp dụng schema và chỉ có sản phẩm gốc. Việc này **không** tự nạp catalog demo 150 sản phẩm.
+
+Để nạp 150 sản phẩm demo (600 biến thể), hãy dừng Flask rồi chạy từ thư mục gốc:
+
+```bash
+python seed_products.py
+```
+
+Mặc định, script cập nhật bộ lọc danh mục trong `templates/index.html`. Có thể đổi DB đích, bỏ cập nhật HTML hoặc làm mới phần mô tả của các slug `aura-demo-*` đã có:
+
+```bash
+python seed_products.py --db .\data\catalog-demo.db --no-html
+python seed_products.py --refresh
+```
+
+`--refresh` cập nhật chất liệu, phong cách, hướng dẫn size và mô tả; không đổi giá, tồn kho hay đơn hàng. Chạy lại seeder không tạo sản phẩm trùng.
+
+Tạo tài khoản bằng một trong các cách sau:
+
+```bash
+python seed_accounts.py
+python create_admin.py
+python create_staff.py
+```
+
+`seed_accounts.py` đọc thông tin từ `.env`; hai script `create_admin.py` và `create_staff.py` hỏi thông tin tương tác trên terminal. Cả ba script có chức năng trùng nhau ở phần tạo tài khoản theo role; nhóm nên chọn một cách dùng nhất quán.
+
 ---
 
 ## 4. CÁC TÍNH NĂNG TRỌNG TÂM & CÁCH SỬ DỤNG
@@ -210,7 +239,7 @@ Transaction tạo đơn dùng `BEGIN IMMEDIATE`/rollback trong Python. SQLite tr
 - Rate limit chat là 20 request/phút/IP, lưu trong bộ nhớ của một tiến trình; không chia sẻ giữa nhiều worker.
 - `static/js/app.js` chưa được tách thành ES modules.
 - Chưa kiểm tra đầy đủ mọi viewport, thao tác bàn phím và focus accessibility.
-- `database/store.db` đang được Git theo dõi; pytest hiện dùng DB tạm, không dùng file này.
+- `database/store.db` không được Git theo dõi; pytest dùng DB tạm và không cần file này.
 
 ---
 
