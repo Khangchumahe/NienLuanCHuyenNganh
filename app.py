@@ -20,8 +20,9 @@ load_dotenv()
 from database.db import (
     init_db, get_all_products, get_product_by_id, 
     sp_create_order_and_deduct_stock, get_db_stats,
-    create_user, verify_user, get_db_connection
+    create_user, verify_user, get_db_connection, ensure_schema
 )
+ensure_schema()
 from services.rag_engine import rag_service
 from services.payment_service import (
     generate_checksum, verify_checksum, process_mock_payment_callback,

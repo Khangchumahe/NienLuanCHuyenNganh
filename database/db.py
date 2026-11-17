@@ -11,13 +11,35 @@ from datetime import datetime, timedelta
 import hashlib
 import hmac
 import secrets
+import threading
 from services.rag_rules import fold, has_fabric, normalize_size
 
 DB_PATH = os.environ.get('AURA_DB_PATH') or os.path.join(os.path.dirname(__file__), 'store.db')
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), 'schema.sql')
 logger = logging.getLogger(__name__)
+_SCHEMA_LOCK = threading.RLock()
+_SCHEMA_READY_PATHS = set()
+
+
+def ensure_schema():
+    """Apply the idempotent schema once per database path before any query."""
+    path = os.path.abspath(DB_PATH)
+    with _SCHEMA_LOCK:
+        if path in _SCHEMA_READY_PATHS and os.path.exists(path):
+            return
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        conn = sqlite3.connect(path, timeout=30)
+        try:
+            conn.execute("PRAGMA busy_timeout = 30000")
+            with open(SCHEMA_PATH, 'r', encoding='utf-8') as schema_file:
+                conn.executescript(schema_file.read())
+            conn.commit()
+        finally:
+            conn.close()
+        _SCHEMA_READY_PATHS.add(path)
 
 def get_db_connection():
+    ensure_schema()
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -27,12 +49,7 @@ def get_db_connection():
     return conn
 
 def init_db():
-    conn = get_db_connection()
-    with open(SCHEMA_PATH, 'r', encoding='utf-8') as f:
-        schema_sql = f.read()
-    conn.executescript(schema_sql)
-    conn.commit()
-    conn.close()
+    ensure_schema()
     seed_sample_data()
 
 
@@ -584,6 +601,7 @@ def verify_user(email, password):
     return {key: user[key] for key in ('id', 'email', 'full_name', 'phone', 'role')}
 
 
-# Chạy sau khi tất cả hàm đã được định nghĩa (tránh NameError khi khởi tạo mới).
-if not os.path.exists(DB_PATH):
-    init_db()
+# Chạy sau khi tất cả hàm đã được định nghĩa: áp schema cả cho DB cũ đã tồn tại,
+# rồi seed nếu cần trước khi module khác (đặc biệt RAGEngine) có thể truy vấn.
+ensure_schema()
+seed_sample_data()
