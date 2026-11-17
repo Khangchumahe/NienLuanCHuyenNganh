@@ -7,6 +7,8 @@ from collections import OrderedDict
 from threading import Lock
 from time import monotonic
 import json
+import hashlib
+import math
 
 from dotenv import load_dotenv
 from flask import (
@@ -167,14 +169,96 @@ def api_register():
     return jsonify(result), (201 if result['success'] else 400)
 
 
+_LOGIN_FAILURE_LIMIT = 5
+_LOGIN_WINDOW_SECONDS = 5 * 60
+_LOGIN_RATE_MAX_ENTRIES = 8192
+_login_failures = OrderedDict()
+_login_failures_lock = Lock()
+
+
+def _login_rate_now():
+    return monotonic()
+
+
+def _login_rate_keys(address, email):
+    address = str(address or 'unknown')[:128]
+    normalized_email = email.strip().lower() if isinstance(email, str) else ''
+    if len(normalized_email) > 254:
+        normalized_email = 'oversize:' + hashlib.sha256(
+            normalized_email.encode('utf-8', errors='replace')
+        ).hexdigest()
+    return (f'ip:{address}', f'email:{normalized_email}')
+
+
+def _prune_login_failures(now):
+    expired = [
+        key for key, (expires, _) in _login_failures.items()
+        if expires <= now
+    ]
+    for key in expired:
+        _login_failures.pop(key, None)
+
+
+def _login_retry_after(address, email):
+    now = _login_rate_now()
+    keys = _login_rate_keys(address, email)
+    with _login_failures_lock:
+        _prune_login_failures(now)
+        blocked_expiries = [
+            _login_failures[key][0]
+            for key in keys
+            if key in _login_failures
+            and _login_failures[key][1] >= _LOGIN_FAILURE_LIMIT
+        ]
+        return max(0, math.ceil(max(blocked_expiries) - now)) if blocked_expiries else 0
+
+
+def _record_login_failure(address, email):
+    now = _login_rate_now()
+    with _login_failures_lock:
+        _prune_login_failures(now)
+        for key in _login_rate_keys(address, email):
+            expires, count = _login_failures.get(
+                key, (now + _LOGIN_WINDOW_SECONDS, 0)
+            )
+            if key not in _login_failures:
+                while len(_login_failures) >= _LOGIN_RATE_MAX_ENTRIES:
+                    _login_failures.popitem(last=False)
+                expires = now + _LOGIN_WINDOW_SECONDS
+                count = 0
+            _login_failures[key] = (expires, count + 1)
+            _login_failures.move_to_end(key)
+
+
+def _clear_login_failures(address, email):
+    with _login_failures_lock:
+        for key in _login_rate_keys(address, email):
+            _login_failures.pop(key, None)
+
+
 @app.route('/api/auth/login', methods=['POST'])
 def api_login():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(success=False, error='Cần gửi JSON hợp lệ'), 400
-    user = verify_user(data.get('email'), data.get('password'))
+    raw_email = data.get('email')
+    email = raw_email.strip().lower() if isinstance(raw_email, str) else ''
+    password = data.get('password')
+    address = request.remote_addr
+    retry_after = _login_retry_after(address, email)
+    if retry_after:
+        return jsonify(
+            success=False,
+            error='Bạn đăng nhập quá nhiều lần. Vui lòng thử lại sau.',
+        ), 429, {'Retry-After': str(retry_after)}
+
+    user = None
+    if isinstance(password, str) and len(email) <= 254 and len(password) <= 1024:
+        user = verify_user(email, password)
     if not user:
+        _record_login_failure(address, email)
         return jsonify(success=False, error='Email hoặc mật khẩu không đúng'), 401
+    _clear_login_failures(address, email)
     session.clear()
     session['user_id'] = user['id']
     session['csrf_token'] = secrets.token_urlsafe(32)
