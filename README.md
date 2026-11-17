@@ -37,8 +37,12 @@ NienLuan_origin/
 │   └── size_chart.py        # Tư vấn size
 ├── admin_*.py               # Route admin dùng session/RBAC hiện có
 ├── customer_portal.py       # Trang và API customer
+├── product_social.py        # Trang sản phẩm, API review và yêu thích
 ├── customer_migrate.py      # Tạo bảng liên kết đơn hàng customer
+├── seed_products.py         # Nạp catalog demo 150 sản phẩm
 ├── seed_accounts.py         # CLI tạo tài khoản demo từ biến môi trường
+├── create_admin.py          # CLI tạo tài khoản ADMIN tương tác
+├── create_staff.py          # CLI tạo tài khoản STAFF tương tác
 ├── config/store_policies.json # Cấu hình chính sách cửa hàng
 ├── docs/                    # Ghi chú rà soát
 ├── tests/                   # Pytest và frontend smoke test
@@ -231,12 +235,16 @@ Transaction tạo đơn dùng `BEGIN IMMEDIATE`/rollback trong Python. SQLite tr
 
 ### Xác thực và phân quyền
 
-Đăng nhập tại `POST /api/auth/login` xác minh email/mật khẩu rồi lưu `user_id` và CSRF token trong Flask session cookie được ký bằng `SECRET_KEY` (hoặc `FLASK_SECRET_KEY` làm fallback của Flask). Mật khẩu băm PBKDF2-HMAC-SHA256 với salt ngẫu nhiên và 600.000 iterations. Role trong DB là `ADMIN`, `STAFF`, `CUSTOMER`; đăng ký `POST /api/auth/register` chỉ tạo `CUSTOMER`. `GET /api/auth/me` và `POST /api/auth/logout` cần đăng nhập; logout cần thêm CSRF. Checkout và các route xử lý thanh toán (`POST /api/orders/checkout`, `/api/payment/process-card`, `/api/payment/simulate-callback`) cần session `CUSTOMER` và CSRF. Các route `/api/admin/stats`, `/api/ai/sync-rag` và route quản trị sản phẩm/biến thể/đơn hàng cần `ADMIN`; route ghi còn cần CSRF. Danh mục và chat (`/api/products`, `/api/ai/chat`) đọc công khai. Không dùng JWT/OAuth.
+Đăng nhập tại `POST /api/auth/login` xác minh email/mật khẩu rồi lưu `user_id` và CSRF token trong Flask session cookie được ký bằng `SECRET_KEY` (hoặc `FLASK_SECRET_KEY` làm fallback của Flask). Mật khẩu băm PBKDF2-HMAC-SHA256 với salt ngẫu nhiên và 600.000 iterations. Role trong DB là `ADMIN`, `STAFF`, `CUSTOMER`; đăng ký `POST /api/auth/register` chỉ tạo `CUSTOMER`. Login giới hạn 5 lần sai/5 phút theo IP và email; register giới hạn 5 lần/10 phút theo IP, trả 429 cùng `Retry-After` khi vượt ngưỡng. Bộ đếm lưu trong bộ nhớ một tiến trình. `GET /api/auth/me` và `POST /api/auth/logout` cần đăng nhập; logout cần thêm CSRF. Checkout và các route xử lý thanh toán (`POST /api/orders/checkout`, `/api/payment/process-card`, `/api/payment/simulate-callback`) cần session `CUSTOMER` và CSRF. Các route dashboard thống kê chỉ dành ADMIN; route quản lý sản phẩm/biến thể/đơn hàng và đồng bộ RAG dùng `require_management` cho ADMIN/STAFF; route ghi còn cần CSRF. Danh mục và chat (`/api/products`, `/api/ai/chat`) đọc công khai. Không dùng JWT/OAuth.
 
 ### Giới hạn đã biết
 
 - Sau checkout/thanh toán thành công, app đồng bộ lại toàn bộ Knowledge Base RAG từ SQLite; phù hợp demo nhỏ nhưng có thể tăng độ trễ khi catalog lớn.
 - Rate limit chat là 20 request/phút/IP, lưu trong bộ nhớ của một tiến trình; không chia sẻ giữa nhiều worker.
+- Rate limit login/register cũng lưu trong bộ nhớ một tiến trình; review không yêu cầu người dùng đã mua hàng.
+- Bảng `product_reviews` và `product_favorites` được tạo bởi `product_social.py` lúc đăng ký các route khi import ứng dụng.
+- `staff.py` là script migration một lần cho bản code cũ, có sao lưu và sửa nhiều file; phần dựng SQL migration users có nối chuỗi. Không chạy script này trên source hiện tại; `ensure_schema()`/`database/db.py` đã quản lý schema và role.
+- Gemini cần API key hợp lệ và billing/quota khả dụng; nếu thiếu key, lỗi quyền hoặc quota, chatbot dùng chế độ dự phòng template.
 - `static/js/app.js` chưa được tách thành ES modules.
 - Chưa kiểm tra đầy đủ mọi viewport, thao tác bàn phím và focus accessibility.
 - `database/store.db` không được Git theo dõi; pytest dùng DB tạm và không cần file này.

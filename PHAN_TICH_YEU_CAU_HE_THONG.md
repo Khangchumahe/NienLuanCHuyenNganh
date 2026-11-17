@@ -105,7 +105,7 @@ Các FR/NFR gốc phía trên được giữ nguyên như yêu cầu mục tiêu
 |---|---|---|
 | FR-01 | Làm một phần | `app.py` dùng register/login và session; `database/db.py` băm PBKDF2; `tests/test_seed_accounts.py` kiểm tra đăng nhập. Chưa có đổi mật khẩu/address book; không dùng JWT/OAuth. |
 | FR-02 | Làm một phần | `app.py:api_products` và `database/db.py:get_all_products` hỗ trợ search/category; RAG lọc giá/size/màu/chất liệu/tồn. Chưa có full-text, sắp xếp theo bán chạy hoặc nhiều bộ lọc storefront. |
-| FR-03 | Làm một phần | `templates/product_detail.html`, `database/db.py:get_product_by_id`, `services/size_chart.py`; không có hệ thống reviews/comments. |
+| FR-03 | Làm một phần | `product_social.py` cung cấp review (mỗi Customer tối đa một review/mẫu, có thể tạo/sửa/xóa) và yêu thích; `tests/test_review_backend.py` kiểm tra quyền sở hữu review. Chưa buộc review phải gắn với đơn đã mua, không có ảnh review hoặc phản hồi của cửa hàng; trang chi tiết và size guide hiện có ở `templates/product_detail.html`, `services/size_chart.py`. |
 | FR-04 | Làm một phần | `static/js/app.js` giữ cart phía client; `tests/test_review_backend.py::test_invalid_quantities_are_rejected_without_changing_stock` kiểm tra giới hạn server. Không có coupon/voucher. |
 | FR-05 | Làm một phần | `database/db.py:sp_create_order_and_deduct_stock` và `tests/test_review_backend.py` kiểm tra đặt hàng/payment; checkout dùng simulator, chưa có luồng COD hoàn chỉnh hay thông báo giao dịch ngoài giao diện. |
 | FR-06 | Làm một phần | `customer_portal.py` và `services/agentic_tools.py:db_lookup_order_for_customer` có tra đơn; `tests/test_rag_quality.py` kiểm tra auth/ownership. Không có mọi trạng thái hay lịch sử giao dịch/IP theo yêu cầu gốc. |
@@ -114,7 +114,7 @@ Các FR/NFR gốc phía trên được giữ nguyên như yêu cầu mục tiêu
 | FR-09 | Làm một phần | Tồn theo SKU trong `database/db.py`; `admin_dashboard.py` đếm low-stock; chưa có phiếu nhập kho. |
 | FR-10 | Làm một phần | `admin_orders.py` xem/cập nhật đơn; `tests/test_review_backend.py` kiểm tra webhook/hủy/hoàn tồn. Chưa có workflow vận chuyển/hoàn tiền đầy đủ. |
 | FR-11 | Chưa làm (để phát triển sau) | Không có promotion/coupon model hoặc route trong `database/schema.sql`, `admin_*.py`. |
-| FR-12 | Làm một phần | `app.py:api_sync_rag`, `services/rag_engine.py:sync_knowledge_base` và RAG Trace; `tests/test_review_backend.py::test_admin_stats_and_rag_sync_require_existing_admin_role`. Không có vector DB hoặc nhật ký hội thoại quản trị. |
+| FR-12 | Làm một phần | `app.py:api_sync_rag` được bảo vệ bởi `require_management` nên ADMIN và STAFF được đồng bộ RAG; `services/rag_engine.py:sync_knowledge_base` cập nhật retriever TF-IDF/cosine trong bộ nhớ. `app.py:require_management` cho phép đúng hai role ADMIN/STAFF, còn `tests/test_review_backend.py::test_admin_stats_and_rag_sync_require_existing_admin_role` kiểm tra STAFF bị từ chối tại route ADMIN-only và ADMIN đồng bộ được. Không có vector database hoặc nhật ký hội thoại quản trị. |
 | FR-13 | Làm một phần | `admin_dashboard.py` và `database/db.py:get_db_stats` cung cấp counts/summary/logs; chưa có biểu đồ doanh thu theo thời gian, top seller hay conversion. |
 | FR-14 | Chưa làm (để phát triển sau) | `services/rag_engine.py` dùng lexical weighting/cosine, không tạo embedding hoặc kết nối vector database; `tests/test_rag_quality.py` kiểm tra retriever hiện tại. |
 | FR-15 | Làm một phần | `services/agentic_rag.py` gọi Gemini function-calling để chọn tool và code dựng câu trả lời; `tests/test_chat_regression.py::test_agentic_trace_identifies_gemini_router_with_template_rendering`. Không dùng LLM để viết câu trả lời cuối. |
@@ -124,11 +124,15 @@ Các FR/NFR gốc phía trên được giữ nguyên như yêu cầu mục tiêu
 | NFR-03 | Làm một phần | `database/db.py` có Python transaction helpers và schema indexes; không có stored procedures SQL, báo cáo truy vấn hay bằng chứng không full-scan cho mọi truy vấn. |
 | NFR-04 | Làm một phần | `database/db.py:sp_create_order_and_deduct_stock` kiểm tra/trừ kho trong transaction `BEGIN IMMEDIATE`/rollback; `database/schema.sql` dùng trigger SQLite `RAISE(ABORT)` để chặn tồn âm khi UPDATE. Trigger không kiểm tra/trừ kho tại INSERT `order_items` như yêu cầu gốc; `tests/test_review_backend.py` kiểm tra rollback/oversell. |
 | NFR-05 | Làm một phần | SQLite triggers `trg_track_order_status` và `trg_log_inventory_change` ghi status/stock; không có trigger audit biến động giá. |
-| NFR-06 | Làm một phần | `app.py:require_login`, `require_admin`, `require_customer_payment` dùng session và role; `tests/test_seed_accounts.py` kiểm tra admin/customer. Không dùng JWT access/refresh token. |
+| NFR-06 | Làm một phần | Đăng nhập dựa trên Flask session cookie, `app.py:require_login` xác thực phiên; `require_admin` chỉ cho ADMIN, còn `require_management` cho ADMIN/STAFF trên các route quản lý và đồng bộ RAG; CUSTOMER bị từ chối. `tests/test_review_backend.py::test_admin_stats_and_rag_sync_require_existing_admin_role` kiểm tra phân quyền. Không dùng JWT access/refresh token. |
 | NFR-07 | Làm một phần | SQL parameterization, CSRF, escaping, callback validation và chat rate limit có trong `app.py`, `static/js/*.js`; `tests/test_review_backend.py`/`tests/frontend_xss_smoke.cjs` bao phủ một số trường hợp, không phải audit bảo mật đầy đủ. |
 | NFR-08 | Làm một phần | `database/db.py:_hash_password` dùng PBKDF2-HMAC-SHA256, salt ngẫu nhiên, 600.000 iterations; không dùng BCrypt như yêu cầu gốc. |
 | NFR-09 | Làm một phần | CSS responsive có trong `static/css/` và templates; chưa xác minh đầy đủ mọi viewport/keyboard/accessibility. |
 | NFR-10 | Đã làm | `app.py:handle_http_error`, `handle_unexpected_error`; `tests/test_review_backend.py::test_chat_limit_and_http_errors_use_consistent_json` kiểm tra JSON lỗi và không lộ chi tiết 500. |
+
+### Ghi chú xác thực và giới hạn tần suất
+
+Đăng nhập dùng Flask session, không dùng JWT; mật khẩu dùng PBKDF2-HMAC-SHA256 với salt ngẫu nhiên. `POST /api/auth/login` giới hạn 5 lần sai trong 5 phút theo IP và email; `POST /api/auth/register` giới hạn 5 yêu cầu trong 10 phút theo IP. Khi vượt giới hạn, API trả JSON 429 kèm `Retry-After`; bộ đếm ở trong bộ nhớ của một tiến trình. `create_user()` hiện vẫn phản hồi khác nhau khi email đã được đăng ký, nên có thể dò trạng thái email qua đăng ký.
 
 ---
 
@@ -145,8 +149,10 @@ Các FR/NFR gốc phía trên được giữ nguyên như yêu cầu mục tiêu
 8. `payments` (id, order_id, transaction_code, amount, payment_gateway, status, checksum_signature, created_at)
 9. `inventory_logs` (id, variant_id, change_quantity, remaining_stock, reason, created_at)
 10. `order_status_history` (id, order_id, old_status, new_status, note, changed_at)
+11. `product_reviews` (id, user_id, product_id, rating, comment, created_at, updated_at) — UNIQUE theo `(user_id, product_id)`, rating 1–5, comment 1–2000 ký tự.
+12. `product_favorites` (user_id, product_id, created_at) — khóa chính ghép `(user_id, product_id)`.
 
-Schema hiện ở [database/schema.sql](database/schema.sql); `database/db.py:ensure_schema()` áp schema idempotent khi khởi tạo/đầu kết nối. Vai trò hợp lệ là `ADMIN`, `STAFF`, `CUSTOMER`.
+Các bảng lõi ở [database/schema.sql](database/schema.sql); `product_reviews`, `product_favorites` và hai index riêng được tạo bằng `SCHEMA` trong `product_social.py` khi module đăng ký route lúc import. `database/db.py:ensure_schema()` áp schema lõi idempotent khi khởi tạo/đầu kết nối. Vai trò hợp lệ là `ADMIN`, `STAFF`, `CUSTOMER`.
 
 ### 5.2. Danh mục Chỉ mục (Indexes) để Tối ưu Truy vấn
 * `idx_products_category` trên `(category_id, is_published)`.
