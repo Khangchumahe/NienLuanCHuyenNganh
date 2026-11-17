@@ -9,7 +9,10 @@ from time import monotonic
 import json
 
 from dotenv import load_dotenv
-from flask import Flask, Response, abort, render_template, request, jsonify, session, g
+from flask import (
+    Flask, Response, abort, render_template, request, jsonify, session, g,
+    redirect, url_for,
+)
 from functools import wraps
 import os
 import secrets
@@ -23,6 +26,7 @@ from database.db import (
     create_user, verify_user, get_db_connection, ensure_schema
 )
 ensure_schema()
+init_db()
 from services.rag_engine import rag_service
 from services.payment_service import (
     generate_checksum, verify_checksum, process_mock_payment_callback,
@@ -102,6 +106,19 @@ def require_admin(view):
     return wrapped
 
 
+def require_management(view):
+    @wraps(view)
+    @require_login
+    def wrapped(*args, **kwargs):
+        if g.user['role'] not in ('ADMIN', 'STAFF'):
+            return jsonify(
+                success=False,
+                error='Bạn không có quyền quản lý'
+            ), 403
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def require_csrf(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -122,6 +139,22 @@ def require_customer_payment(view):
             return jsonify(success=False, error='Bạn cần dùng tài khoản khách hàng để thanh toán.'), 403
         return view(*args, **kwargs)
     return wrapped
+
+
+def account_home(user):
+    if user['role'] == 'ADMIN':
+        return url_for('admin_dashboard_page')
+    if user['role'] == 'STAFF':
+        return url_for('staff_orders_page')
+    return url_for('customer_page')
+
+
+@app.get('/login')
+def login_page():
+    user = current_user()
+    if user:
+        return redirect(account_home(user))
+    return render_template('customer_portal.html')
 
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -163,9 +196,6 @@ def api_logout():
     return jsonify(success=True, message='Đã đăng xuất')
 
 
-# Khởi tạo Database và nạp dữ liệu mẫu
-init_db()
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -183,14 +213,6 @@ def api_product_detail(product_id):
     if not product or not product['is_published']:
         return jsonify({'success': False, 'message': 'Không tìm thấy sản phẩm'}), 404
     return jsonify({'success': True, 'product': product})
-
-
-@app.get('/products/<int:product_id>')
-def product_page(product_id):
-    product = get_product_by_id(product_id)
-    if not product or not product['is_published']:
-        abort(404)
-    return render_template('product_detail.html', product=product)
 
 
 @app.route('/api/orders/checkout', methods=['POST'])
@@ -411,7 +433,7 @@ def api_ai_chat():
     return jsonify(payload), 200 if payload['success'] else 503
 
 @app.route('/api/ai/sync-rag', methods=['POST'])
-@require_admin
+@require_management
 @require_csrf
 def api_sync_rag():
     """Đồng bộ lại Knowledge Base của RAG từ SQL"""
@@ -431,7 +453,7 @@ from admin_products import register_admin_product_routes
 
 register_admin_product_routes(
     app,
-    require_admin,
+    require_management,
     require_csrf,
     rag_service
 )
@@ -440,7 +462,7 @@ from admin_variants import register_admin_variant_routes
 
 register_admin_variant_routes(
     app,
-    require_admin,
+    require_management,
     require_csrf
 )
 
@@ -450,7 +472,7 @@ from admin_orders import register_admin_order_routes
 
 register_admin_order_routes(
     app,
-    require_admin,
+    require_management,
     require_csrf
 )
 
@@ -460,8 +482,7 @@ from admin_dashboard import register_admin_dashboard_routes
 
 register_admin_dashboard_routes(
     app,
-    require_admin
-)
+    require_admin, current_user)
 
 
 # Customer Portal
@@ -474,6 +495,10 @@ register_customer_routes(
 )
 
 
+
+
+from product_social import register_product_social
+register_product_social(app, require_login, require_csrf, current_user)
 
 
 if __name__ == '__main__':

@@ -1,71 +1,27 @@
-# Byte-compiled / optimized / DLL files
+# Virtual environments and generated Python files
+.venv/
+venv/
 __pycache__/
 *.py[cod]
-*$py.class
+.pytest_cache/
+node_modules/
 
-# C++ extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
-venv/
-.venv/
-ENV/
-env/
-
-# IDE files
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-
-# File cookie dang nhap thu nghiem
-cookies.txt
-admin_cookies.txt
-
-# Script tao va reset tai khoan Admin
-create_admin.py
-reset_admin_password.py
-
-# SQLite database local
-database/store.db
-
-# Moi truong ao Python
-venv/
-
-# Python cache
-__pycache__/
-*.pyc
-
-# Local configuration and SQLite sidecar files
+# Local secrets and configuration
 .env
 .env.*
 !.env.example
+
+# Local databases and SQLite sidecars
+database/store.db
 database/store.db-*
-.pytest_cache/
+
+# Generated backups
+backup_catalog_*/
+backup_*/
+backup_social_*/
+
+# Local project artifacts
+/New folder/
+*.zip
+admin_cookies.txt
+cookies.txt

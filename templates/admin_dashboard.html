@@ -1,63 +1,1638 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Admin Dashboard · AURA FASHION</title>
-<style>
-:root{font-family:Inter,system-ui,Segoe UI,sans-serif;color:#1c2432;background:#f5f6fa}*{box-sizing:border-box}body{margin:0}.app{display:grid;grid-template-columns:235px 1fr;min-height:100vh}aside{background:#18233a;color:#fff;padding:26px 18px}.brand{font-size:21px;font-weight:800;letter-spacing:.04em;margin-bottom:35px}.brand small{display:block;font-size:11px;font-weight:500;color:#a3b2ca;letter-spacing:.14em;margin-top:4px}nav button{display:block;width:100%;background:transparent;border:0;color:#cbd5e1;text-align:left;padding:13px 14px;border-radius:9px;margin:5px 0;cursor:pointer;font-size:14px}nav button.active,nav button:hover{background:#34435d;color:#fff}main{padding:32px;min-width:0}.top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.top h1{font-size:25px;margin:0 0 6px}.muted{color:#697589;font-size:13px}.top a{color:#334b74}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:26px 0}.stat,.panel{background:#fff;border:1px solid #e7eaf1;border-radius:14px;box-shadow:0 3px 12px #0b13220a}.stat{padding:22px}.stat strong{display:block;font-size:27px;margin-top:12px}.stat span{color:#7a8496;font-size:13px}.panel{padding:20px;margin:18px 0}.panel h2{font-size:18px;margin:0 0 18px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:15px}button,select,input{font:inherit}button.primary{background:#253b65;color:white;border:0;border-radius:8px;padding:10px 15px;cursor:pointer}button.secondary,select{background:white;color:#334155;border:1px solid #d7dce7;border-radius:8px;padding:9px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}th,td{text-align:left;padding:12px 9px;border-bottom:1px solid #edf0f5}th{color:#738097;font-weight:600}tr:last-child td{border:0}td button{font-size:12px}.pill{display:inline-block;padding:5px 9px;background:#edf1f8;border-radius:30px;font-size:11px;font-weight:700}.notice{padding:12px 14px;border-radius:9px;background:#eaf1ff;color:#254876;margin:14px 0}.notice.error{background:#fff0ee;color:#a12f2f}.hidden{display:none}.detail{border-top:1px solid #e7eaf1;margin-top:20px;padding-top:16px}dl{display:grid;grid-template-columns:145px 1fr;gap:9px;font-size:13px}dt{color:#778295}dd{margin:0;overflow-wrap:anywhere}.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:18px 0}pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f8fa;border:1px solid #edf0f5;border-radius:8px;padding:12px}@media(max-width:900px){.app{grid-template-columns:1fr}aside{padding:15px}nav{display:flex;gap:8px}.brand{margin-bottom:12px}.stats{grid-template-columns:repeat(2,1fr)}main{padding:20px}}@media(max-width:500px){.stats{grid-template-columns:1fr}}
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 
-.formgrid{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px}.field{display:flex;flex-direction:column;gap:5px;font-size:13px}.field input,.field textarea,.field select{border:1px solid #d7dce7;border-radius:8px;padding:10px;background:white;width:100%}.field textarea{min-height:70px}.field-wide{grid-column:1/-1}.subpanel{background:#f9fafc;border:1px solid #e5e9f0;padding:16px;border-radius:12px;margin:14px 0}.mini{padding:6px 10px!important;margin-right:6px}.rowactions{display:flex;flex-wrap:wrap;gap:6px}.helper{font-size:12px;color:#63718a}.formtitle{margin:0 0 12px;font-size:16px}@media(max-width:800px){.formgrid{grid-template-columns:1fr}}
-</style></head>
-<body><div class="app"><aside><div class="brand">AURA FASHION<small>ADMIN CONTROL CENTER</small></div><nav><button class="active" data-page="overview">▦ Tổng quan</button><button data-page="orders">▣ Đơn hàng</button><button data-page="products">◈ Sản phẩm & kho</button></nav></aside>
-<main><div class="top"><div><h1 id="pageTitle">Tổng quan cửa hàng</h1><span class="muted">Quản lý trực tiếp dữ liệu SQLite và đơn hàng</span></div><div><a href="/">Về trang chủ</a> &nbsp; <button class="secondary" id="refresh">↻ Làm mới</button></div></div><div id="notice" class="notice hidden" role="status"></div>
-<section id="overview"><div class="stats"><div class="stat"><span>Sản phẩm</span><strong id="s-products">—</strong></div><div class="stat"><span>Đơn hàng</span><strong id="s-orders">—</strong></div><div class="stat"><span>Doanh thu từ đơn đã thanh toán (đ)</span><strong id="s-revenue">—</strong></div><div class="stat"><span>Đơn chờ thanh toán</span><strong id="s-pending">—</strong></div></div><div class="panel"><h2>Đơn hàng gần đây</h2><div id="recentOrders"></div></div></section>
-<section id="orders" class="hidden"><div class="panel"><h2>Danh sách đơn hàng</h2><div class="toolbar"><label for="orderFilter">Trạng thái</label><select id="orderFilter"><option value="">Tất cả</option><option>PENDING_PAYMENT</option><option>PAID</option><option>SHIPPING</option><option>DELIVERED</option><option>CANCELLED</option></select><button class="secondary" id="loadOrders">Lọc</button></div><div class="tablewrap"><table><thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Tổng tiền</th><th>Trạng thái</th><th>Ngày tạo</th><th></th></tr></thead><tbody id="ordersBody"></tbody></table></div><div class="detail hidden" id="orderDetail"><h2>Chi tiết đơn hàng</h2><dl id="orderInfo"></dl><h3>Sản phẩm trong đơn</h3><div id="orderItems"></div><h3>Lịch sử trạng thái</h3><div id="orderHistory"></div><div class="actions"><label for="nextStatus">Chuyển sang</label><select id="nextStatus"></select><button class="primary" id="updateStatus">Cập nhật trạng thái</button></div><p class="muted">Đã thanh toán mới chuyển sang SHIPPING; SHIPPING mới chuyển sang DELIVERED. Đơn chờ thanh toán có thể hủy và hoàn kho nếu thanh toán vẫn PENDING.</p></div></div></section>
-<section id="products" class="hidden"><div class="panel"><div class="top"><h2>Sản phẩm & tồn kho</h2><button id="newProduct" class="primary">+ Thêm sản phẩm</button></div><p class="muted">Thêm, sửa, ẩn/hiện, tạo size–màu và thay đổi kho qua API Admin hiện có.</p>
-<div class="tablewrap"><table><thead><tr><th>ID</th><th>Sản phẩm</th><th>Giá</th><th>Tồn kho</th><th>Hiển thị</th><th>Thao tác</th></tr></thead><tbody id="productsBody"></tbody></table></div>
-<div id="productEditor" class="subpanel hidden"><h3 class="formtitle" id="editorTitle">Thêm sản phẩm</h3><form id="productForm"><div class="formgrid">
-<label class="field">Tên sản phẩm *<input name="name" required maxlength="150"></label>
-<label class="field">Slug *<input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" title="Chữ thường, số và dấu gạch ngang"></label>
-<label class="field">ID danh mục *<input name="category_id" type="number" min="1" required></label>
-<label class="field">Giá gốc (đ) *<input name="price" type="number" min="0" step="1" required></label>
-<label class="field">Giá giảm (đ, có thể bỏ trống)<input name="discount_price" type="number" min="0" step="1"></label>
-<label class="field">Chất liệu<input name="material"></label>
-<label class="field">Phong cách<input name="style"></label>
-<label class="field">Hướng dẫn size<input name="size_guide"></label>
-<label class="field field-wide">URL hình ảnh<input name="image_url" type="text"></label>
-<label class="field field-wide">Mô tả<textarea name="description"></textarea></label>
-</div><p class="helper">ID danh mục phải tồn tại trong bảng categories. Để xem danh mục dùng lệnh trong HUONG_DAN.txt.</p><div class="actions"><button type="submit" class="primary" id="saveProduct">Lưu sản phẩm</button><button type="button" class="secondary" id="cancelEditor">Đóng</button></div></form></div>
-<div id="variantsPanel" class="subpanel hidden"><div class="top"><h3 class="formtitle" id="variantsTitle">Biến thể sản phẩm</h3><button class="secondary" id="closeVariants">Đóng</button></div><div class="tablewrap"><table><thead><tr><th>ID</th><th>SKU</th><th>Màu</th><th>Size</th><th>Tồn kho</th><th>Thao tác</th></tr></thead><tbody id="variantsBody"></tbody></table></div><h4>Thêm biến thể mới</h4><form id="variantForm" class="formgrid"><label class="field">SKU *<input name="sku" required></label><label class="field">Màu *<input name="color" required></label><label class="field">Size *<input name="size" required></label><label class="field">Tồn kho ban đầu *<input name="stock_quantity" type="number" min="0" step="1" value="0" required></label><div class="actions"><button class="primary" type="submit">+ Thêm biến thể</button></div></form></div>
-</div></section>
-</main></div>
+    <title>
+        {{ 'Quản trị' if is_admin else 'Nhân viên' }} · AURA FASHION
+    </title>
+
+    <style>
+        :root {
+            font-family: Inter, system-ui, "Segoe UI", sans-serif;
+            color: #1c2432;
+            background: #f5f6fa;
+        }
+
+        * { box-sizing: border-box; }
+        body { margin: 0; }
+
+        .app {
+            display: grid;
+            grid-template-columns: 235px 1fr;
+            min-height: 100vh;
+        }
+
+        aside {
+            background: #18233a;
+            color: white;
+            padding: 26px 18px;
+        }
+
+        .brand {
+            font-size: 21px;
+            font-weight: 800;
+            letter-spacing: .04em;
+            margin-bottom: 35px;
+        }
+
+        .brand small {
+            display: block;
+            font-size: 11px;
+            font-weight: 500;
+            color: #a3b2ca;
+            letter-spacing: .14em;
+            margin-top: 4px;
+        }
+
+        nav button {
+            display: block;
+            width: 100%;
+            background: transparent;
+            border: 0;
+            color: #cbd5e1;
+            text-align: left;
+            padding: 13px 14px;
+            border-radius: 9px;
+            margin: 5px 0;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        nav button.active,
+        nav button:hover {
+            background: #34435d;
+            color: white;
+        }
+
+        main {
+            padding: 32px;
+            min-width: 0;
+        }
+
+        .top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .top h1 {
+            font-size: 25px;
+            margin: 0 0 6px;
+        }
+
+        .top a { color: #334b74; }
+        .muted { color: #697589; font-size: 13px; }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 16px;
+            margin: 26px 0;
+        }
+
+        .stat,
+        .panel {
+            background: white;
+            border: 1px solid #e7eaf1;
+            border-radius: 14px;
+            box-shadow: 0 3px 12px #0b13220a;
+        }
+
+        .stat { padding: 22px; }
+
+        .stat strong {
+            display: block;
+            font-size: 27px;
+            margin-top: 12px;
+            overflow-wrap: anywhere;
+        }
+
+        .stat span { color: #7a8496; font-size: 13px; }
+        .panel { padding: 20px; margin: 18px 0; }
+        .panel h2 { font-size: 18px; margin: 0 0 18px; }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        button,
+        select,
+        input,
+        textarea {
+            font: inherit;
+        }
+
+        button.primary {
+            background: #253b65;
+            color: white;
+            border: 0;
+            border-radius: 8px;
+            padding: 10px 15px;
+            cursor: pointer;
+        }
+
+        button.secondary,
+        select {
+            background: white;
+            color: #334155;
+            border: 1px solid #d7dce7;
+            border-radius: 8px;
+            padding: 9px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: .45;
+            cursor: not-allowed;
+        }
+
+        .tablewrap { overflow: auto; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 12px 9px;
+            border-bottom: 1px solid #edf0f5;
+        }
+
+        th { color: #738097; font-weight: 600; }
+        tr:last-child td { border: 0; }
+        td button { font-size: 12px; }
+
+        .notice {
+            padding: 12px 14px;
+            border-radius: 9px;
+            background: #eaf1ff;
+            color: #254876;
+            margin: 14px 0;
+        }
+
+        .notice.error {
+            background: #fff0ee;
+            color: #a12f2f;
+        }
+
+        .hidden { display: none !important; }
+
+        .detail {
+            border-top: 1px solid #e7eaf1;
+            margin-top: 20px;
+            padding-top: 16px;
+        }
+
+        dl {
+            display: grid;
+            grid-template-columns: 145px 1fr;
+            gap: 9px;
+            font-size: 13px;
+        }
+
+        dt { color: #778295; }
+        dd { margin: 0; overflow-wrap: anywhere; }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin: 18px 0;
+        }
+
+        .formgrid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(160px, 1fr));
+            gap: 12px;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 13px;
+        }
+
+        .field input,
+        .field textarea,
+        .field select {
+            border: 1px solid #d7dce7;
+            border-radius: 8px;
+            padding: 10px;
+            background: white;
+            width: 100%;
+        }
+
+        .field textarea { min-height: 70px; }
+        .field-wide { grid-column: 1 / -1; }
+
+        .subpanel {
+            background: #f9fafc;
+            border: 1px solid #e5e9f0;
+            padding: 16px;
+            border-radius: 12px;
+            margin: 14px 0;
+        }
+
+        .mini { padding: 6px 10px !important; }
+        .rowactions { display: flex; flex-wrap: wrap; gap: 6px; }
+        .helper { font-size: 12px; color: #63718a; }
+        .formtitle { margin: 0 0 12px; font-size: 16px; }
+
+        /* Biểu đồ */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+            gap: 18px;
+        }
+
+        .chart-grid .panel { margin: 0; min-width: 0; }
+
+        .chart-kicker {
+            color: #74839b;
+            font-size: 12px;
+            margin: 0 0 6px;
+        }
+
+        .chart-total {
+            font-size: 26px;
+            color: #243e69;
+            margin: 0 0 18px;
+            font-weight: 750;
+        }
+
+        .revenue-bars {
+            height: 240px;
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            gap: 10px;
+            border-bottom: 1px solid #e6ebf3;
+            padding: 0 6px;
+        }
+
+        .bar-column {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .bar-value {
+            font-size: 10px;
+            color: #61718b;
+            white-space: nowrap;
+        }
+
+        .bar-shape {
+            width: min(100%, 42px);
+            border-radius: 7px 7px 0 0;
+            background: linear-gradient(180deg, #63b4fc, #4274dc);
+            flex-shrink: 0;
+        }
+
+        .bar-label {
+            font-size: 11px;
+            color: #7c8aa0;
+            padding-bottom: 10px;
+        }
+
+        .chart-note {
+            font-size: 12px;
+            color: #7c8aa0;
+            line-height: 1.6;
+            margin: 15px 0 0;
+        }
+
+        .donut {
+            width: 172px;
+            height: 172px;
+            border-radius: 50%;
+            margin: 10px auto 22px;
+            display: grid;
+            place-items: center;
+            background: #edf1f7;
+        }
+
+        .donut-center {
+            width: 126px;
+            height: 126px;
+            border-radius: 50%;
+            background: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .donut-center strong { font-size: 27px; color: #243e69; }
+        .donut-center span { font-size: 12px; color: #7c8aa0; }
+
+        .chart-legend { display: grid; gap: 11px; }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #61718b;
+        }
+
+        .legend-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .legend-count {
+            margin-left: auto;
+            color: #243e69;
+            font-weight: 700;
+        }
+
+        .chart-details {
+            margin-top: 18px;
+            color: #61718b;
+            font-size: 12px;
+        }
+
+        .chart-details summary { cursor: pointer; }
+        .chart-details table { margin-top: 10px; }
+
+        @media (max-width: 1100px) {
+            .chart-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 900px) {
+            .app { grid-template-columns: 1fr; }
+            aside { padding: 15px; }
+            nav { display: flex; gap: 8px; }
+            .brand { margin-bottom: 12px; }
+            .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            main { padding: 20px; }
+        }
+
+        @media (max-width: 800px) {
+            .formgrid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 500px) {
+            .stats { grid-template-columns: 1fr; }
+            .revenue-bars { gap: 4px; padding: 0; }
+            .bar-value { font-size: 9px; }
+            .chart-total { font-size: 23px; }
+        }
+    </style>
+</head>
+
+<body>
+<div class="app">
+    <aside>
+        <div class="brand">
+            AURA FASHION
+            <small>
+                {{ 'ADMIN CONTROL CENTER' if is_admin else 'STAFF CONTROL CENTER' }}
+            </small>
+        </div>
+
+        <nav>
+            {% if is_admin %}
+            <button type="button" class="active" data-page="overview">
+                ▦ Tổng quan
+            </button>
+            {% endif %}
+
+            <button type="button" data-page="orders">
+                ▣ Đơn hàng
+            </button>
+
+            <button type="button" data-page="products">
+                ◈ Sản phẩm & kho
+            </button>
+        </nav>
+    </aside>
+
+    <main>
+        <div class="top">
+            <div>
+                <h1 id="pageTitle">
+                    {{ 'Tổng quan cửa hàng' if is_admin else 'Quản lý đơn hàng' }}
+                </h1>
+                <span class="muted">
+                    Quản lý sản phẩm, tồn kho và đơn hàng
+                </span>
+            </div>
+
+            <div class="toolbar">
+                <a href="/">Về trang chủ</a>
+                <button type="button" class="secondary" id="refresh">
+                    ↻ Làm mới
+                </button>
+                <button type="button" class="secondary" id="logout">
+                    Đăng xuất
+                </button>
+            </div>
+        </div>
+
+        <div id="notice" class="notice hidden" role="status"></div>
+
+        {% if is_admin %}
+        <section id="overview">
+            <div class="stats">
+                <div class="stat">
+                    <span>Sản phẩm</span>
+                    <strong id="s-products">—</strong>
+                </div>
+
+                <div class="stat">
+                    <span>Đơn hàng</span>
+                    <strong id="s-orders">—</strong>
+                </div>
+
+                <div class="stat">
+                    <span>Doanh thu toàn bộ (đ)</span>
+                    <strong id="s-revenue">—</strong>
+                </div>
+
+                <div class="stat">
+                    <span>Đơn chờ thanh toán</span>
+                    <strong id="s-pending">—</strong>
+                </div>
+            </div>
+
+            <div class="chart-grid">
+                <div class="panel">
+                    <h2>Doanh thu 7 ngày gần nhất</h2>
+
+                    <p class="chart-kicker">
+                        Tổng giá trị đơn đã thanh toán trong kỳ
+                    </p>
+
+                    <p id="weekRevenue" class="chart-total">Đang tải…</p>
+
+                    <div
+                        id="revenueBars"
+                        class="revenue-bars"
+                        role="img"
+                        aria-label="Biểu đồ doanh thu 7 ngày"
+                    ></div>
+
+                    <p class="chart-note">
+                        Tính theo ngày tạo đơn (giờ Việt Nam),
+                        với trạng thái đã thanh toán,
+                        đang giao hoặc đã giao.
+                    </p>
+
+                    <details class="chart-details">
+                        <summary>Xem số liệu theo ngày</summary>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Ngày</th>
+                                    <th>Doanh thu (đ)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dailyData"></tbody>
+                        </table>
+                    </details>
+                </div>
+
+                <div class="panel">
+                    <h2>Trạng thái đơn hàng</h2>
+
+                    <p class="chart-kicker">
+                        Tất cả đơn hàng trong hệ thống
+                    </p>
+
+                    <div
+                        id="statusDonut"
+                        class="donut"
+                        role="img"
+                        aria-label="Biểu đồ trạng thái đơn hàng"
+                    >
+                        <div class="donut-center">
+                            <strong id="chartOrderCount">0</strong>
+                            <span>đơn hàng</span>
+                        </div>
+                    </div>
+
+                    <div id="statusLegend" class="chart-legend"></div>
+
+                    <p id="statusEmpty" class="chart-note hidden">
+                        Chưa có đơn hàng để thống kê.
+                    </p>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Đơn hàng gần đây</h2>
+                <div id="recentOrders"></div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Quản lý đơn hàng -->
+        <section id="orders" class="hidden">
+            <div class="panel">
+                <h2>Danh sách đơn hàng</h2>
+
+                <div class="toolbar">
+                    <label for="orderFilter">Trạng thái</label>
+
+                    <select id="orderFilter">
+                        <option value="">Tất cả</option>
+                        <option value="PENDING_PAYMENT">Chờ thanh toán</option>
+                        <option value="PAID">Đã thanh toán</option>
+                        <option value="SHIPPING">Đang giao</option>
+                        <option value="DELIVERED">Đã giao</option>
+                        <option value="CANCELLED">Đã hủy</option>
+                    </select>
+
+                    <button type="button" class="secondary" id="loadOrders">
+                        Lọc
+                    </button>
+                </div>
+
+                <div class="tablewrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Mã đơn</th>
+                                <th>Khách hàng</th>
+                                <th>Tổng tiền</th>
+                                <th>Trạng thái</th>
+                                <th>Ngày tạo</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ordersBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="detail hidden" id="orderDetail">
+                    <h2>Chi tiết đơn hàng</h2>
+                    <dl id="orderInfo"></dl>
+
+                    <h3>Sản phẩm trong đơn</h3>
+                    <div id="orderItems"></div>
+
+                    <h3>Lịch sử trạng thái</h3>
+                    <div id="orderHistory"></div>
+
+                    <div class="actions">
+                        <label for="nextStatus">Chuyển sang</label>
+                        <select id="nextStatus"></select>
+
+                        <button
+                            type="button"
+                            class="primary"
+                            id="updateStatus"
+                        >
+                            Cập nhật trạng thái
+                        </button>
+                    </div>
+
+                    <p class="muted">
+                        Đã thanh toán → Đang giao → Đã giao.
+                        Đơn chờ thanh toán có thể hủy và hoàn kho
+                        nếu giao dịch vẫn đang chờ xử lý.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quản lý sản phẩm -->
+        <section id="products" class="hidden">
+            <div class="panel">
+                <div class="top">
+                    <h2>Sản phẩm & tồn kho</h2>
+
+                    <button type="button" id="newProduct" class="primary">
+                        + Thêm sản phẩm
+                    </button>
+                </div>
+
+                <p class="muted">
+                    Thêm, sửa, ẩn/hiện sản phẩm,
+                    tạo size/màu và cập nhật tồn kho.
+                </p>
+
+                <div class="tablewrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Sản phẩm</th>
+                                <th>Giá</th>
+                                <th>Tồn kho</th>
+                                <th>Hiển thị</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="productsBody"></tbody>
+                    </table>
+                </div>
+
+                <div id="productEditor" class="subpanel hidden">
+                    <h3 class="formtitle" id="editorTitle">
+                        Thêm sản phẩm
+                    </h3>
+
+                    <form id="productForm">
+                        <div class="formgrid">
+                            <label class="field">
+                                Tên sản phẩm *
+                                <input name="name" required maxlength="150">
+                            </label>
+
+                            <label class="field">
+                                Slug *
+                                <input
+                                    name="slug"
+                                    required
+                                    pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                                    title="Chữ thường, số và dấu gạch ngang"
+                                >
+                            </label>
+
+                            <label class="field">
+                                ID danh mục *
+                                <input
+                                    name="category_id"
+                                    type="number"
+                                    min="1"
+                                    required
+                                >
+                            </label>
+
+                            <label class="field">
+                                Giá gốc (đ) *
+                                <input
+                                    name="price"
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    required
+                                >
+                            </label>
+
+                            <label class="field">
+                                Giá giảm (đ, có thể bỏ trống)
+                                <input
+                                    name="discount_price"
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                >
+                            </label>
+
+                            <label class="field">
+                                Chất liệu
+                                <input name="material">
+                            </label>
+
+                            <label class="field">
+                                Phong cách
+                                <input name="style">
+                            </label>
+
+                            <label class="field">
+                                Hướng dẫn size
+                                <input name="size_guide">
+                            </label>
+
+                            <label class="field field-wide">
+                                URL hình ảnh
+                                <input name="image_url" type="text">
+                            </label>
+
+                            <label class="field field-wide">
+                                Mô tả
+                                <textarea name="description"></textarea>
+                            </label>
+                        </div>
+
+                        <p class="helper">
+                            ID danh mục phải tồn tại trong bảng categories.
+                        </p>
+
+                        <div class="actions">
+                            <button
+                                type="submit"
+                                class="primary"
+                                id="saveProduct"
+                            >
+                                Lưu sản phẩm
+                            </button>
+
+                            <button
+                                type="button"
+                                class="secondary"
+                                id="cancelEditor"
+                            >
+                                Đóng
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div id="variantsPanel" class="subpanel hidden">
+                    <div class="top">
+                        <h3 class="formtitle" id="variantsTitle">
+                            Biến thể sản phẩm
+                        </h3>
+
+                        <button
+                            type="button"
+                            class="secondary"
+                            id="closeVariants"
+                        >
+                            Đóng
+                        </button>
+                    </div>
+
+                    <div class="tablewrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>SKU</th>
+                                    <th>Màu</th>
+                                    <th>Size</th>
+                                    <th>Tồn kho</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="variantsBody"></tbody>
+                        </table>
+                    </div>
+
+                    <h4>Thêm biến thể mới</h4>
+
+                    <form id="variantForm" class="formgrid">
+                        <label class="field">
+                            SKU *
+                            <input name="sku" required>
+                        </label>
+
+                        <label class="field">
+                            Màu *
+                            <input name="color" required>
+                        </label>
+
+                        <label class="field">
+                            Size *
+                            <input name="size" required>
+                        </label>
+
+                        <label class="field">
+                            Tồn kho ban đầu *
+                            <input
+                                name="stock_quantity"
+                                type="number"
+                                min="0"
+                                step="1"
+                                value="0"
+                                required
+                            >
+                        </label>
+
+                        <div class="actions">
+                            <button class="primary" type="submit">
+                                + Thêm biến thể
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
 <script>
 'use strict';
-const $=id=>document.getElementById(id);
-const fmt=n=>new Intl.NumberFormat('vi-VN').format(Number(n||0));
-let csrf='', currentOrder=null;
-function show(msg,error=false){const n=$('notice');n.textContent=msg;n.className='notice'+(error?' error':'');}
-function clear(){ $('notice').className='notice hidden'; }
-async function api(path,opts={}){let resp;try{resp=await fetch(path,{credentials:'same-origin',...opts});}catch(e){throw Error('Không thể kết nối Flask. '+e.message);}let data;try{data=await resp.json();}catch{throw Error('Máy chủ không trả JSON hợp lệ ('+resp.status+').');}if(!resp.ok||data.success===false)throw Error(data.error||data.message||('HTTP '+resp.status));return data;}
-function cell(tr,value){let td=document.createElement('td');td.textContent=String(value??'—');tr.appendChild(td);return td;}
-function empty(tbody,n,label){tbody.replaceChildren();let tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=n;td.textContent=label;tr.appendChild(td);tbody.appendChild(tr);}
-async function loadSummary(){const d=await api('/api/admin/dashboard/summary');$('s-products').textContent=fmt(d.stats.products);$('s-orders').textContent=fmt(d.stats.orders);$('s-revenue').textContent=fmt(d.stats.revenue);$('s-pending').textContent=fmt(d.stats.pending);}
-async function loadOrders(){let status=$('orderFilter').value;let d=await api('/api/admin/orders'+(status?'?status='+encodeURIComponent(status):''));const tbody=$('ordersBody');tbody.replaceChildren();if(!d.orders.length)empty(tbody,6,'Chưa có đơn hàng');for(const o of d.orders){let tr=document.createElement('tr');cell(tr,o.order_code);cell(tr,o.customer_name);cell(tr,fmt(o.total_amount)+' đ');cell(tr,o.status);cell(tr,o.created_at);let td=cell(tr,'');let b=document.createElement('button');b.className='secondary';b.textContent='Chi tiết';b.addEventListener('click',()=>detail(o.id).catch(e=>show(e.message,true)));td.appendChild(b);tbody.appendChild(tr);}let recent=$('recentOrders');recent.replaceChildren();let p=document.createElement('p');p.className='muted';p.textContent=d.orders.slice(0,5).map(o=>o.order_code+' · '+o.status).join('  |  ')||'Chưa có đơn hàng';recent.appendChild(p);}
-let productRows=[], editingProduct=null, selectedProduct=null;
-function csrfOptions(method,payload){return {method,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(payload)};}
-function fieldValues(form){return Object.fromEntries(new FormData(form).entries());}
-function moneyInput(value,key){if(value==='')return null;let n=Number(value);if(!Number.isFinite(n)||n<0)throw Error(key+' phải là số không âm');return n;}
-function notifyError(e){show(e.message||String(e),true);}
-async function loadProducts(){const d=await api('/api/admin/products');productRows=d.products||[];let tbody=$('productsBody');tbody.replaceChildren();if(!productRows.length){empty(tbody,6,'Chưa có sản phẩm');return;}for(let p of productRows){let tr=document.createElement('tr');cell(tr,p.id);cell(tr,p.name);cell(tr,fmt(p.discount_price??p.price)+' đ');cell(tr,p.total_stock);cell(tr,p.is_published?'Đang bán':'Đã ẩn');let td=cell(tr,'');td.className='rowactions';let edit=makeButton('Sửa',()=>openProductEditor(p));let visibility=makeButton(p.is_published?'Ẩn':'Hiện',()=>toggleVisibility(p));let variants=makeButton('Size / Màu / Kho',()=>openVariants(p).catch(notifyError));td.append(edit,visibility,variants);tbody.appendChild(tr);}}
-function makeButton(label,fn){let b=document.createElement('button');b.type='button';b.className='secondary mini';b.textContent=label;b.addEventListener('click',fn);return b;}
-function openProductEditor(p=null){editingProduct=p;$('productEditor').classList.remove('hidden');$('editorTitle').textContent=p?'Sửa sản phẩm #'+p.id:'Thêm sản phẩm';const f=$('productForm');f.reset();if(p){for(const el of f.elements){if(el.name)el.value=p[el.name]??'';}}else{f.elements.category_id.value='1';} $('productEditor').scrollIntoView({behavior:'smooth',block:'start'});}
-async function saveProduct(e){e.preventDefault();const f=$('productForm');if(!f.reportValidity())return;let raw=fieldValues(f);let body={name:raw.name.trim(),slug:raw.slug.trim(),category_id:Number(raw.category_id),price:moneyInput(raw.price,'Giá'),discount_price:moneyInput(raw.discount_price,'Giá giảm'),description:raw.description.trim(),material:raw.material.trim(),style:raw.style.trim(),size_guide:raw.size_guide.trim(),image_url:raw.image_url.trim()};if(body.discount_price!==null&&body.discount_price>body.price){show('Giá giảm không được lớn hơn giá gốc',true);return;}const b=$('saveProduct');b.disabled=true;try{let editing=editingProduct;await api(editing?'/api/admin/products/'+editing.id:'/api/admin/products',csrfOptions(editing?'PUT':'POST',body));$('productEditor').classList.add('hidden');await loadProducts();await loadSummary();show(editing?'Đã sửa sản phẩm thành công.':'Đã tạo sản phẩm. Hãy thêm biến thể size/màu và tồn kho.');}catch(err){notifyError(err);}finally{b.disabled=false;}}
-async function toggleVisibility(p){if(!confirm((p.is_published?'Ẩn':'Hiện')+' sản phẩm "'+p.name+'"?'))return;try{await api('/api/admin/products/'+p.id+'/visibility',csrfOptions('PATCH',{is_published:!Boolean(p.is_published)}));await loadProducts();await loadSummary();show('Đã cập nhật hiển thị sản phẩm.');}catch(e){notifyError(e);}}
-async function openVariants(p){selectedProduct=p;$('variantsPanel').classList.remove('hidden');$('variantsTitle').textContent='Biến thể — '+p.name+' (#'+p.id+')';await refreshVariants();$('variantsPanel').scrollIntoView({behavior:'smooth',block:'start'});}
-async function refreshVariants(){if(!selectedProduct)return;let d=await api('/api/admin/products/'+selectedProduct.id+'/variants');let tbody=$('variantsBody');tbody.replaceChildren();if(!(d.variants||[]).length){empty(tbody,6,'Chưa có biến thể');return;}for(let v of d.variants){let tr=document.createElement('tr');cell(tr,v.id);cell(tr,v.sku);cell(tr,v.color);cell(tr,v.size);cell(tr,v.stock_quantity);let td=cell(tr,'');td.appendChild(makeButton('Cập nhật kho',()=>updateStock(v)));tbody.appendChild(tr);}}
-async function updateStock(v){let input=prompt('Số lượng tồn kho MỚI của '+v.sku+' (hiện '+v.stock_quantity+'): ',String(v.stock_quantity));if(input===null)return;if(!/^\d+$/.test(input.trim())){show('Tồn kho phải là số nguyên không âm.',true);return;}let n=Number(input);if(!Number.isSafeInteger(n)){show('Giá trị kho quá lớn.',true);return;}if(!confirm('Thay tồn kho '+v.sku+' từ '+v.stock_quantity+' thành '+n+'?'))return;try{await api('/api/admin/variants/'+v.id+'/stock',csrfOptions('PATCH',{stock_quantity:n}));await refreshVariants();await loadProducts();await loadSummary();show('Đã cập nhật kho. Trigger SQL sẽ ghi lịch sử nếu số lượng thay đổi.');}catch(e){notifyError(e);}}
-async function createVariant(e){e.preventDefault();if(!selectedProduct)return;let raw=fieldValues($('variantForm'));let n=Number(raw.stock_quantity);if(!Number.isSafeInteger(n)||n<0){show('Tồn kho phải là số nguyên không âm.',true);return;}let payload={sku:raw.sku.trim(),color:raw.color.trim(),size:raw.size.trim(),stock_quantity:n};try{await api('/api/admin/products/'+selectedProduct.id+'/variants',csrfOptions('POST',payload));$('variantForm').reset();await refreshVariants();await loadProducts();await loadSummary();show('Đã thêm biến thể mới.');}catch(err){notifyError(err);}}
-$('newProduct').addEventListener('click',()=>openProductEditor());$('cancelEditor').addEventListener('click',()=>$('productEditor').classList.add('hidden'));$('productForm').addEventListener('submit',saveProduct);$('closeVariants').addEventListener('click',()=>$('variantsPanel').classList.add('hidden'));$('variantForm').addEventListener('submit',createVariant);
-const transitions={PENDING_PAYMENT:['CANCELLED'],PAID:['SHIPPING'],SHIPPING:['DELIVERED']};
-async function detail(id){const d=await api('/api/admin/orders/'+id);currentOrder=id;$('orderDetail').classList.remove('hidden');const box=$('orderInfo');box.replaceChildren();for(const [k,v] of [['Mã đơn',d.order.order_code],['Khách hàng',d.order.customer_name],['Số điện thoại',d.order.customer_phone],['Địa chỉ',d.order.customer_address],['Tổng tiền',fmt(d.order.total_amount)+' đ'],['Trạng thái',d.order.status]]){let dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=String(v??'—');box.append(dt,dd);}const items=$('orderItems');items.replaceChildren();for(let item of d.items){let p=document.createElement('p');p.textContent=`${item.product_name} · ${item.color} · ${item.size} · SL ${item.quantity} · ${fmt(item.subtotal)} đ`;items.appendChild(p);}if(!d.items.length)items.textContent='Không có sản phẩm';const history=$('orderHistory');history.replaceChildren();for(let h of d.history){let p=document.createElement('p');p.className='muted';p.textContent=`${h.old_status||'—'} → ${h.new_status} · ${h.changed_at}`;history.appendChild(p);}if(!d.history.length)history.textContent='Chưa có lịch sử';let sel=$('nextStatus');sel.replaceChildren();for(let s of transitions[d.order.status]||[]){let option=document.createElement('option');option.value=s;option.textContent=s;sel.appendChild(option);}let enabled=sel.options.length>0;sel.disabled=!enabled;$('updateStatus').disabled=!enabled;}
-async function updateStatus(){if(!currentOrder||!$('nextStatus').value)return;const target=$('nextStatus').value;if(!window.confirm('Xác nhận chuyển đơn #'+currentOrder+' sang '+target+'?'))return;try{await api('/api/admin/orders/'+currentOrder+'/status',{method:'PATCH',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({status:target})});await Promise.all([loadSummary(),loadOrders()]);await detail(currentOrder);show('Đã cập nhật trạng thái đơn hàng.');}catch(e){show(e.message,true);}}
-async function switchPage(page){for(let id of ['overview','orders','products'])$(id).classList.toggle('hidden',id!==page);document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('pageTitle').textContent={overview:'Tổng quan cửa hàng',orders:'Quản lý đơn hàng',products:'Sản phẩm & tồn kho'}[page];clear();try{if(page==='overview')await Promise.all([loadSummary(),loadOrders()]);if(page==='orders')await loadOrders();if(page==='products')await loadProducts();}catch(e){show(e.message,true);}}
-document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>switchPage(b.dataset.page)));$('refresh').addEventListener('click',()=>switchPage(document.querySelector('nav button.active').dataset.page));$('loadOrders').addEventListener('click',()=>loadOrders().catch(e=>show(e.message,true)));$('updateStatus').addEventListener('click',updateStatus);
-(async()=>{try{const d=await api('/api/auth/me');if(d.user?.role!=='ADMIN')throw Error('Bạn không có quyền Admin.');csrf=d.csrf_token||'';if(!csrf)throw Error('Không nhận được CSRF token.');await switchPage('overview');}catch(e){show('Cần đăng nhập Admin trên trình duyệt: '+e.message,true);}})();
-</script></body></html>
+
+const $ = id => document.getElementById(id);
+
+const fmt = value =>
+    new Intl.NumberFormat('vi-VN').format(Number(value || 0));
+
+const IS_ADMIN = {{ is_admin|tojson }};
+const INITIAL_PAGE = {{ initial_page|tojson }};
+
+const STATUS_LABELS = {
+    PENDING_PAYMENT: 'Chờ thanh toán',
+    PAID: 'Đã thanh toán',
+    SHIPPING: 'Đang giao',
+    DELIVERED: 'Đã giao',
+    CANCELLED: 'Đã hủy'
+};
+
+let csrf = '';
+let currentOrder = null;
+let productRows = [];
+let editingProduct = null;
+let selectedProduct = null;
+
+function show(message, error = false) {
+    $('notice').textContent = message;
+    $('notice').className = 'notice' + (error ? ' error' : '');
+}
+
+function clear() {
+    $('notice').className = 'notice hidden';
+}
+
+function notifyError(error) {
+    show(error.message || String(error), true);
+}
+
+async function api(path, options = {}) {
+    let response;
+
+    try {
+        response = await fetch(path, {
+            credentials: 'same-origin',
+            ...options
+        });
+    } catch (error) {
+        throw new Error('Không thể kết nối Flask. ' + error.message);
+    }
+
+    let data;
+
+    try {
+        data = await response.json();
+    } catch {
+        throw new Error(
+            'Máy chủ không trả JSON hợp lệ (' + response.status + ').'
+        );
+    }
+
+    if (!response.ok || data.success === false) {
+        throw new Error(
+            data.error || data.message || ('HTTP ' + response.status)
+        );
+    }
+
+    return data;
+}
+
+function csrfOptions(method, payload) {
+    return {
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf
+        },
+        body: JSON.stringify(payload)
+    };
+}
+
+function cell(row, value) {
+    const element = document.createElement('td');
+    element.textContent = String(value ?? '—');
+    row.appendChild(element);
+    return element;
+}
+
+function empty(tbody, columns, label) {
+    tbody.replaceChildren();
+
+    const row = document.createElement('tr');
+    const element = document.createElement('td');
+
+    element.colSpan = columns;
+    element.textContent = label;
+
+    row.appendChild(element);
+    tbody.appendChild(row);
+}
+
+function makeButton(label, action) {
+    const button = document.createElement('button');
+
+    button.type = 'button';
+    button.className = 'secondary mini';
+    button.textContent = label;
+    button.addEventListener('click', action);
+
+    return button;
+}
+
+// Dashboard Admin.
+async function loadSummary() {
+    if (!IS_ADMIN) return;
+
+    const data = await api('/api/admin/dashboard/summary');
+
+    $('s-products').textContent = fmt(data.stats.products);
+    $('s-orders').textContent = fmt(data.stats.orders);
+    $('s-revenue').textContent = fmt(data.stats.revenue);
+    $('s-pending').textContent = fmt(data.stats.pending);
+
+    renderDashboardCharts(data.charts);
+}
+
+function renderDashboardCharts(charts) {
+    const days = charts.daily_revenue;
+
+    const maximum = Math.max(
+        1,
+        ...days.map(day => Number(day.revenue))
+    );
+
+    const totalRevenue = days.reduce(
+        (sum, day) => sum + Number(day.revenue),
+        0
+    );
+
+    const compact = value =>
+        new Intl.NumberFormat('vi-VN', {
+            notation: 'compact',
+            maximumFractionDigits: 1
+        }).format(value);
+
+    $('weekRevenue').textContent = fmt(totalRevenue) + ' đ';
+    $('revenueBars').replaceChildren();
+    $('dailyData').replaceChildren();
+
+    for (const day of days) {
+        const column = document.createElement('div');
+        column.className = 'bar-column';
+        column.title = day.label + ': ' + fmt(day.revenue) + ' đ';
+
+        const value = document.createElement('span');
+        value.className = 'bar-value';
+        value.textContent = compact(day.revenue);
+
+        const bar = document.createElement('div');
+        bar.className = 'bar-shape';
+        bar.style.height = Math.max(
+            2,
+            Number(day.revenue) / maximum * 175
+        ) + 'px';
+
+        const label = document.createElement('span');
+        label.className = 'bar-label';
+        label.textContent = day.label;
+
+        column.append(value, bar, label);
+        $('revenueBars').appendChild(column);
+
+        const row = document.createElement('tr');
+        cell(row, day.date);
+        cell(row, fmt(day.revenue));
+        $('dailyData').appendChild(row);
+    }
+
+    const colors = {
+        PENDING_PAYMENT: '#f0b44d',
+        PAID: '#547be8',
+        SHIPPING: '#56b6c2',
+        DELIVERED: '#60b68b',
+        CANCELLED: '#e48787'
+    };
+
+    const total = charts.order_statuses.reduce(
+        (sum, item) => sum + item.count,
+        0
+    );
+
+    let position = 0;
+    const segments = [];
+
+    $('statusLegend').replaceChildren();
+    $('chartOrderCount').textContent = fmt(total);
+    $('statusEmpty').classList.toggle('hidden', total !== 0);
+
+    for (const item of charts.order_statuses) {
+        const color = colors[item.status] || '#94a3b8';
+
+        if (total && item.count) {
+            const end = position + item.count / total * 100;
+            segments.push(`${color} ${position}% ${end}%`);
+            position = end;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'legend-row';
+
+        const dot = document.createElement('span');
+        dot.className = 'legend-dot';
+        dot.style.background = color;
+
+        const name = document.createElement('span');
+        name.textContent = STATUS_LABELS[item.status] || item.status;
+
+        const count = document.createElement('span');
+        count.className = 'legend-count';
+        count.textContent = fmt(item.count);
+
+        row.append(dot, name, count);
+        $('statusLegend').appendChild(row);
+    }
+
+    $('statusDonut').style.background = segments.length
+        ? `conic-gradient(${segments.join(',')})`
+        : '#edf1f7';
+
+    $('statusDonut').setAttribute(
+        'aria-label',
+        'Trạng thái của ' + fmt(total)
+        + ' đơn hàng; xem chú giải bên dưới.'
+    );
+}
+
+// Quản lý đơn hàng.
+async function loadOrders() {
+    const status = $('orderFilter').value;
+    const query = status ? '?status=' + encodeURIComponent(status) : '';
+    const data = await api('/api/admin/orders' + query);
+    const tbody = $('ordersBody');
+
+    tbody.replaceChildren();
+
+    if (!data.orders.length) {
+        empty(tbody, 6, 'Chưa có đơn hàng');
+    }
+
+    for (const order of data.orders) {
+        const row = document.createElement('tr');
+
+        cell(row, order.order_code);
+        cell(row, order.customer_name);
+        cell(row, fmt(order.total_amount) + ' đ');
+        cell(row, STATUS_LABELS[order.status] || order.status);
+        cell(row, order.created_at);
+
+        const actions = cell(row, '');
+
+        actions.appendChild(makeButton(
+            'Chi tiết',
+            () => detail(order.id).catch(notifyError)
+        ));
+
+        tbody.appendChild(row);
+    }
+
+    const recent = $('recentOrders');
+
+    // Staff không có phần Tổng quan.
+    if (!recent) return;
+
+    recent.replaceChildren();
+
+    const text = document.createElement('p');
+    text.className = 'muted';
+
+    text.textContent = data.orders.slice(0, 5).map(order =>
+        order.order_code + ' · '
+        + (STATUS_LABELS[order.status] || order.status)
+    ).join('  |  ') || 'Chưa có đơn hàng';
+
+    recent.appendChild(text);
+}
+
+const transitions = {
+    PENDING_PAYMENT: ['CANCELLED'],
+    PAID: ['SHIPPING'],
+    SHIPPING: ['DELIVERED']
+};
+
+async function detail(id) {
+    const data = await api('/api/admin/orders/' + id);
+
+    currentOrder = id;
+    $('orderDetail').classList.remove('hidden');
+
+    const info = $('orderInfo');
+    info.replaceChildren();
+
+    const fields = [
+        ['Mã đơn', data.order.order_code],
+        ['Khách hàng', data.order.customer_name],
+        ['Số điện thoại', data.order.customer_phone],
+        ['Địa chỉ', data.order.customer_address],
+        ['Tổng tiền', fmt(data.order.total_amount) + ' đ'],
+        [
+            'Trạng thái',
+            STATUS_LABELS[data.order.status] || data.order.status
+        ]
+    ];
+
+    for (const [label, value] of fields) {
+        const title = document.createElement('dt');
+        const content = document.createElement('dd');
+
+        title.textContent = label;
+        content.textContent = String(value ?? '—');
+
+        info.append(title, content);
+    }
+
+    const items = $('orderItems');
+    items.replaceChildren();
+
+    for (const item of data.items) {
+        const text = document.createElement('p');
+
+        text.textContent =
+            item.product_name + ' · '
+            + item.color + ' · '
+            + item.size + ' · SL '
+            + item.quantity + ' · '
+            + fmt(item.subtotal) + ' đ';
+
+        items.appendChild(text);
+    }
+
+    if (!data.items.length) {
+        items.textContent = 'Không có sản phẩm';
+    }
+
+    const history = $('orderHistory');
+    history.replaceChildren();
+
+    for (const item of data.history) {
+        const text = document.createElement('p');
+        text.className = 'muted';
+
+        text.textContent =
+            (STATUS_LABELS[item.old_status] || item.old_status || '—')
+            + ' → '
+            + (STATUS_LABELS[item.new_status] || item.new_status)
+            + ' · ' + item.changed_at;
+
+        history.appendChild(text);
+    }
+
+    if (!data.history.length) {
+        history.textContent = 'Chưa có lịch sử';
+    }
+
+    const select = $('nextStatus');
+    select.replaceChildren();
+
+    for (const status of transitions[data.order.status] || []) {
+        const option = document.createElement('option');
+        option.value = status;
+        option.textContent = STATUS_LABELS[status] || status;
+        select.appendChild(option);
+    }
+
+    const enabled = select.options.length > 0;
+    select.disabled = !enabled;
+    $('updateStatus').disabled = !enabled;
+}
+
+async function updateStatus() {
+    if (!currentOrder || !$('nextStatus').value) return;
+
+    const target = $('nextStatus').value;
+    const label = STATUS_LABELS[target] || target;
+
+    if (!confirm(
+        'Xác nhận chuyển đơn #' + currentOrder + ' sang ' + label + '?'
+    )) return;
+
+    try {
+        await api(
+            '/api/admin/orders/' + currentOrder + '/status',
+            csrfOptions('PATCH', { status: target })
+        );
+
+        await Promise.all([loadSummary(), loadOrders()]);
+        await detail(currentOrder);
+
+        show('Đã cập nhật trạng thái đơn hàng.');
+    } catch (error) {
+        notifyError(error);
+    }
+}
+
+// Quản lý sản phẩm.
+async function loadProducts() {
+    const data = await api('/api/admin/products');
+    productRows = data.products || [];
+
+    const tbody = $('productsBody');
+    tbody.replaceChildren();
+
+    if (!productRows.length) {
+        empty(tbody, 6, 'Chưa có sản phẩm');
+        return;
+    }
+
+    for (const product of productRows) {
+        const row = document.createElement('tr');
+
+        cell(row, product.id);
+        cell(row, product.name);
+        cell(row, fmt(product.discount_price ?? product.price) + ' đ');
+        cell(row, product.total_stock);
+        cell(row, product.is_published ? 'Đang bán' : 'Đã ẩn');
+
+        const actions = cell(row, '');
+        actions.className = 'rowactions';
+
+        actions.append(
+            makeButton('Sửa', () => openProductEditor(product)),
+            makeButton(
+                product.is_published ? 'Ẩn' : 'Hiện',
+                () => toggleVisibility(product)
+            ),
+            makeButton(
+                'Size / Màu / Kho',
+                () => openVariants(product).catch(notifyError)
+            )
+        );
+
+        tbody.appendChild(row);
+    }
+}
+
+function openProductEditor(product = null) {
+    editingProduct = product;
+
+    $('productEditor').classList.remove('hidden');
+    $('editorTitle').textContent = product
+        ? 'Sửa sản phẩm #' + product.id
+        : 'Thêm sản phẩm';
+
+    const form = $('productForm');
+    form.reset();
+
+    if (product) {
+        for (const element of form.elements) {
+            if (element.name) {
+                element.value = product[element.name] ?? '';
+            }
+        }
+    } else {
+        form.elements.category_id.value = '1';
+    }
+
+    $('productEditor').scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+    });
+}
+
+function fieldValues(form) {
+    return Object.fromEntries(new FormData(form).entries());
+}
+
+function moneyInput(value, label) {
+    if (value === '') return null;
+
+    const amount = Number(value);
+
+    if (!Number.isFinite(amount) || amount < 0) {
+        throw new Error(label + ' phải là số không âm');
+    }
+
+    return amount;
+}
+
+async function saveProduct(event) {
+    event.preventDefault();
+
+    const form = $('productForm');
+    if (!form.reportValidity()) return;
+
+    const button = $('saveProduct');
+
+    try {
+        const raw = fieldValues(form);
+
+        const body = {
+            name: raw.name.trim(),
+            slug: raw.slug.trim(),
+            category_id: Number(raw.category_id),
+            price: moneyInput(raw.price, 'Giá'),
+            discount_price: moneyInput(raw.discount_price, 'Giá giảm'),
+            description: raw.description.trim(),
+            material: raw.material.trim(),
+            style: raw.style.trim(),
+            size_guide: raw.size_guide.trim(),
+            image_url: raw.image_url.trim()
+        };
+
+        if (
+            body.discount_price !== null
+            && body.discount_price > body.price
+        ) {
+            throw new Error('Giá giảm không được lớn hơn giá gốc');
+        }
+
+        button.disabled = true;
+
+        const editing = editingProduct;
+
+        await api(
+            editing
+                ? '/api/admin/products/' + editing.id
+                : '/api/admin/products',
+            csrfOptions(editing ? 'PUT' : 'POST', body)
+        );
+
+        $('productEditor').classList.add('hidden');
+
+        await loadProducts();
+        await loadSummary();
+
+        show(editing
+            ? 'Đã sửa sản phẩm thành công.'
+            : 'Đã tạo sản phẩm. Hãy thêm size/màu và tồn kho.'
+        );
+    } catch (error) {
+        notifyError(error);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function toggleVisibility(product) {
+    if (!confirm(
+        (product.is_published ? 'Ẩn' : 'Hiện')
+        + ' sản phẩm "' + product.name + '"?'
+    )) return;
+
+    try {
+        await api(
+            '/api/admin/products/' + product.id + '/visibility',
+            csrfOptions('PATCH', {
+                is_published: !Boolean(product.is_published)
+            })
+        );
+
+        await loadProducts();
+        await loadSummary();
+
+        show('Đã cập nhật hiển thị sản phẩm.');
+    } catch (error) {
+        notifyError(error);
+    }
+}
+
+// Quản lý biến thể và tồn kho.
+async function openVariants(product) {
+    selectedProduct = product;
+
+    $('variantsPanel').classList.remove('hidden');
+    $('variantsTitle').textContent =
+        'Biến thể — ' + product.name + ' (#' + product.id + ')';
+
+    await refreshVariants();
+
+    $('variantsPanel').scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+    });
+}
+
+async function refreshVariants() {
+    if (!selectedProduct) return;
+
+    const data = await api(
+        '/api/admin/products/' + selectedProduct.id + '/variants'
+    );
+
+    const tbody = $('variantsBody');
+    tbody.replaceChildren();
+
+    if (!(data.variants || []).length) {
+        empty(tbody, 6, 'Chưa có biến thể');
+        return;
+    }
+
+    for (const variant of data.variants) {
+        const row = document.createElement('tr');
+
+        cell(row, variant.id);
+        cell(row, variant.sku);
+        cell(row, variant.color);
+        cell(row, variant.size);
+        cell(row, variant.stock_quantity);
+
+        const actions = cell(row, '');
+
+        actions.appendChild(makeButton(
+            'Cập nhật kho',
+            () => updateStock(variant)
+        ));
+
+        tbody.appendChild(row);
+    }
+}
+
+async function updateStock(variant) {
+    const input = prompt(
+        'Số lượng tồn kho MỚI của ' + variant.sku
+        + ' (hiện ' + variant.stock_quantity + '):',
+        String(variant.stock_quantity)
+    );
+
+    if (input === null) return;
+
+    if (!/^\d+$/.test(input.trim())) {
+        show('Tồn kho phải là số nguyên không âm.', true);
+        return;
+    }
+
+    const quantity = Number(input);
+
+    if (!Number.isSafeInteger(quantity)) {
+        show('Giá trị kho quá lớn.', true);
+        return;
+    }
+
+    if (!confirm(
+        'Thay tồn kho ' + variant.sku
+        + ' từ ' + variant.stock_quantity
+        + ' thành ' + quantity + '?'
+    )) return;
+
+    try {
+        await api(
+            '/api/admin/variants/' + variant.id + '/stock',
+            csrfOptions('PATCH', { stock_quantity: quantity })
+        );
+
+        await refreshVariants();
+        await loadProducts();
+        await loadSummary();
+
+        show('Đã cập nhật kho và ghi nhận biến động bằng Trigger SQL.');
+    } catch (error) {
+        notifyError(error);
+    }
+}
+
+async function createVariant(event) {
+    event.preventDefault();
+
+    if (!selectedProduct) return;
+
+    try {
+        const raw = fieldValues($('variantForm'));
+        const quantity = Number(raw.stock_quantity);
+
+        if (!Number.isSafeInteger(quantity) || quantity < 0) {
+            throw new Error('Tồn kho phải là số nguyên không âm.');
+        }
+
+        await api(
+            '/api/admin/products/' + selectedProduct.id + '/variants',
+            csrfOptions('POST', {
+                sku: raw.sku.trim(),
+                color: raw.color.trim(),
+                size: raw.size.trim(),
+                stock_quantity: quantity
+            })
+        );
+
+        $('variantForm').reset();
+
+        await refreshVariants();
+        await loadProducts();
+        await loadSummary();
+
+        show('Đã thêm biến thể mới.');
+    } catch (error) {
+        notifyError(error);
+    }
+}
+
+// Chuyển trang trong khu vực quản lý.
+async function switchPage(page) {
+    if (!IS_ADMIN && page === 'overview') {
+        page = 'orders';
+    }
+
+    if (!['overview', 'orders', 'products'].includes(page)) {
+        page = IS_ADMIN ? 'overview' : 'orders';
+    }
+
+    for (const id of ['overview', 'orders', 'products']) {
+        $(id)?.classList.toggle('hidden', id !== page);
+    }
+
+    document.querySelectorAll('nav button').forEach(button => {
+        button.classList.toggle('active', button.dataset.page === page);
+    });
+
+    $('pageTitle').textContent = {
+        overview: 'Tổng quan cửa hàng',
+        orders: 'Quản lý đơn hàng',
+        products: 'Sản phẩm & tồn kho'
+    }[page];
+
+    clear();
+
+    try {
+        if (page === 'overview') {
+            await Promise.all([loadSummary(), loadOrders()]);
+        }
+
+        if (page === 'orders') {
+            await loadOrders();
+        }
+
+        if (page === 'products') {
+            await loadProducts();
+        }
+    } catch (error) {
+        notifyError(error);
+    }
+}
+
+// Gắn sự kiện.
+document.querySelectorAll('nav button').forEach(button => {
+    button.addEventListener(
+        'click',
+        () => switchPage(button.dataset.page)
+    );
+});
+
+$('refresh').addEventListener('click', () => {
+    const active = document.querySelector('nav button.active');
+    switchPage(active?.dataset.page || INITIAL_PAGE);
+});
+
+$('loadOrders').addEventListener(
+    'click',
+    () => loadOrders().catch(notifyError)
+);
+
+$('updateStatus').addEventListener('click', updateStatus);
+$('newProduct').addEventListener('click', () => openProductEditor());
+
+$('cancelEditor').addEventListener('click', () => {
+    $('productEditor').classList.add('hidden');
+});
+
+$('closeVariants').addEventListener('click', () => {
+    $('variantsPanel').classList.add('hidden');
+});
+
+$('productForm').addEventListener('submit', saveProduct);
+$('variantForm').addEventListener('submit', createVariant);
+
+$('logout').addEventListener('click', async () => {
+    const button = $('logout');
+    button.disabled = true;
+
+    try {
+        await api(
+            '/api/auth/logout',
+            csrfOptions('POST', {})
+        );
+
+        window.location.replace('/customer');
+    } catch (error) {
+        notifyError(error);
+        button.disabled = false;
+    }
+});
+
+// Khởi tạo trang.
+(async () => {
+    try {
+        const data = await api('/api/auth/me');
+
+        if (!['ADMIN', 'STAFF'].includes(data.user?.role)) {
+            throw new Error('Bạn không có quyền quản lý.');
+        }
+
+        csrf = data.csrf_token || '';
+
+        if (!csrf) {
+            throw new Error('Không nhận được CSRF token.');
+        }
+
+        await switchPage(INITIAL_PAGE);
+    } catch (error) {
+        show('Cần đăng nhập tài khoản quản lý: ' + error.message, true);
+    }
+})();
+</script>
+</body>
+</html>
