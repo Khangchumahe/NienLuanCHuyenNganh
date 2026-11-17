@@ -12,9 +12,8 @@ Nếu bạn chỉ kết nối một mô hình AI (như ChatGPT, Gemini) với we
 * **Không biết tồn kho thực tế:** AI không biết hôm nay Size L áo Oxford còn bao nhiêu cái trong CSDL SQL.
 * **Tư vấn size sai lệch:** Mỗi thương hiệu quần áo có bảng size (Size Chart) riêng. AI thông thường sẽ đoán bừa dẫn đến khách mua nhầm size và đổi trả hàng.
 
-### 1.2. Giải pháp RAG (Retrieval-Augmented Generation)
-RAG giải quyết triệt để vấn đề này bằng nguyên lý:
-> **"Trước khi trả lời (Generation), hãy tra cứu kho dữ liệu thực tế (Retrieval) rồi mới đưa vào ngữ cảnh (Augmentation) để AI đọc và trả lời."**
+### 1.2. Cách hệ thống này truy xuất và trả lời
+Ứng dụng lấy catalog và tồn kho từ SQLite, xếp hạng bằng trọng số từ vựng kiểu TF-IDF kết hợp cosine similarity, lọc theo ràng buộc truy vấn, rồi dựng câu trả lời từ dữ liệu đã kiểm chứng. Hệ thống không tạo embedding và không dùng vector database.
 
 ---
 
@@ -30,8 +29,8 @@ Sơ đồ quy trình thực hiện trong mã nguồn dự án:
                                  │
                                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              BƯỚC 2: VECTOR HÓA & TRÍCH XUẤT (RETRIEVAL)        │
-│  User Query: "1m70 65kg sơ mi" ──► Cosine Similarity (Top-K)    │
+│              BƯỚC 2: LỌC & XẾP HẠNG TỪ VỰNG (RETRIEVAL)         │
+│  Query/catalog tokens ──► IDF-style weighting + cosine (Top-K)  │
 └────────────────────────────────┬────────────────────────────────┘
                                  │
                                  ▼
@@ -42,17 +41,17 @@ Sơ đồ quy trình thực hiện trong mã nguồn dự án:
                                  │
                                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│             BƯỚC 4: SINH CÂU TRẢ LỜI (GENERATION)               │
-│  LLM Engine ──► Trả về câu tư vấn chính xác + Link sản phẩm     │
+│             BƯỚC 4: CHỌN TOOL & DỰNG CÂU TRẢ LỜI                │
+│ Gemini chọn tool (tùy chọn) ──► Python kiểm chứng/render template│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ### BƯỚC 1: CHUẨN BỊ DỮ LIỆU & LẬP CHỈ MỤC (INGESTION & CHUNKING)
-* **Vị trí file code:** [rag_engine.py](file:///d:/NienLuanChuyenNganh/services/rag_engine.py#L20-L45)
+* **Vị trí file code:** [services/rag_engine.py](services/rag_engine.py), [services/rag_rules.py](services/rag_rules.py)
 * **Cơ chế hoạt động:**
-  Hệ thống truy vấn cơ sở dữ liệu SQL (bảng `products` liên kết với `product_variants` và `categories`). Với mỗi sản phẩm, hệ thống đóng gói các trường nghiệp vụ quan trọng thành một **Tài liệu tri thức (Knowledge Document)**:
+  Hệ thống truy vấn SQLite (bảng `products`, `product_variants`, `categories`). Với mỗi sản phẩm, hệ thống dựng một document trong bộ nhớ gồm thông tin sản phẩm, giá, chất liệu, bảng size, mô tả và các biến thể/tồn kho. Đây là dữ liệu runtime, không phải kho embedding/vector độc lập.
 
 ```python
 # Ví dụ 1 Document được tạo ra trong hệ thống:
@@ -75,23 +74,23 @@ Sơ đồ quy trình thực hiện trong mã nguồn dự án:
 
 ---
 
-### BƯỚC 2: TRÍCH XUẤT TƯƠNG ĐỒNG NGỮ NGHĨA (SEMANTIC RETRIEVAL)
-* **Vị trí file code:** [rag_engine.py](file:///d:/NienLuanChuyenNganh/services/rag_engine.py#L47-L105)
+### BƯỚC 2: LỌC CATALOG VÀ COSINE TRÊN TỪ VỰNG
+* **Vị trí file code:** [services/rag_engine.py](services/rag_engine.py), [services/rag_rules.py](services/rag_rules.py)
 * **Cơ chế hoạt động:**
   Khi người dùng nhập câu hỏi vào widget chat:
   > *"Tôi cao 1m70 nặng 64kg muốn tìm áo sơ mi đi tiệc"*
 
-  1. **Tokenization:** Bóc tách các từ khóa ngữ nghĩa: `['1m70', '64kg', 'muốn', 'tìm', 'áo', 'sơ', 'mi', 'đi', 'tiệc']`.
-  2. **Vector Space Calculation:** Tính toán độ tương quan (Cosine Similarity) giữa vector câu hỏi và từng Document trong kho dữ liệu thời trang:
+  1. **Tokenization:** Chuẩn hóa tiếng Việt, tách từ và mở rộng nhóm từ đồng nghĩa.
+  2. **Trọng số và cosine:** Tính trọng số từ document/catalog theo IDF-style term weighting, sau đó cosine similarity giữa query tokens và document tokens. Đây là vector số trong bộ nhớ tạo từ từ vựng, không phải embedding do mô hình sinh:
   
 $$\text{Similarity}(Q, D) = \frac{\vec{Q} \cdot \vec{D}}{\|\vec{Q}\| \|\vec{D}\|}$$
 
-  3. **Ranking & Filtering:** Lọc ra Top-K sản phẩm có điểm tương đồng cao nhất. Ví dụ sản phẩm *Áo Sơ Mi Oxford* đạt điểm số tương quan cao vượt trội vì khớp cả từ khóa loại áo lẫn khoảng chiều cao 1m65-1m72 (58-65kg).
+  3. **Lọc & xếp hạng:** Truy vấn có thể lọc loại/giới tính, chất liệu, ngân sách, màu, size, chiều cao/cân nặng và tồn kho trước khi lấy tối đa 3 kết quả. Ngưỡng cosine hiện dùng là 0.15 để đưa vào nhóm gợi ý; vùng 0.1 được dùng cho ứng viên cần làm rõ.
 
 ---
 
 ### BƯỚC 3: TĂNG CƯỜNG NGỮ CẢNH (PROMPT AUGMENTATION)
-* **Vị trí file code:** [rag_engine.py](file:///d:/NienLuanChuyenNganh/services/rag_engine.py#L107-L135)
+* **Vị trí file code:** [services/rag_engine.py](services/rag_engine.py)
 * **Cơ chế hoạt động:**
   Hệ thống không gửi câu hỏi đơn độc cho AI, mà tự động xây dựng một **Augmented Prompt** (Prompt đã được nạp tài liệu trích xuất ở Bước 2):
 
@@ -112,15 +111,12 @@ Tồn kho: Màu Trắng (Size M: 25 chiếc)...
 
 ---
 
-### BƯỚC 4: SINH CÂU TRẢ LỜI & TRUY VẾT MINH CHỨNG (GENERATION & TRACE)
-* **Vị trí file code:** [rag_engine.py](file:///d:/NienLuanChuyenNganh/services/rag_engine.py#L137-L200)
-* **Cơ chế hoạt động:**
-  Mô hình ngôn ngữ nhận prompt trên và sinh ra câu trả lời thuyết phục:
-  > *"Dạ chào bạn! Với chiều cao 1m70 và cân nặng 64kg, bạn mặc **Size M** mẫu **Áo Sơ Mi Nam Oxford Slimfit Tay Dài** sẽ vừa vặn và tôn dáng nhất..."*
-
-  Đồng thời, hệ thống trả về kèm:
-  * **Thẻ sản phẩm tương tác (Product Card):** Khách có thể bấm vào xem chi tiết hoặc thêm giỏ ngay trong khung chat.
-  * **RAG Trace Payload:** Phục vụ công cụ **RAG Inspector** trên giao diện Web để giảng viên có thể xem trực tiếp từng giai đoạn của thuật toán.
+### BƯỚC 4: CHỌN TOOL, DỰNG CÂU TRẢ LỜI VÀ TRACE
+* **Vị trí file code:** [services/rag_engine.py](services/rag_engine.py), [services/agentic_rag.py](services/agentic_rag.py)
+* Khi có `GEMINI_API_KEY`, Gemini dùng function calling để chọn một tool cửa hàng (ví dụ tìm sản phẩm, tra tồn kho, tư vấn size). Tự động thực thi function của SDK bị tắt; backend kiểm tra đối số, chạy tool đọc SQLite rồi dựng câu trả lời bằng template Python từ kết quả đó. Gemini không tự sinh dữ kiện catalog cuối cùng.
+* Khi không có API key hoặc Gemini lỗi, hệ thống chạy các quy tắc cục bộ và template.
+* RAG Trace hiển thị `generation_mode`: `llm_router + template_render` khi Gemini chọn tool; `template` ở các luồng template/local. Trace có query tokens, kết quả/tool calls và dữ liệu hiển thị trong RAG Inspector.
+* Product card được dựng từ kết quả catalog; người dùng có thể mở trang sản phẩm.
 
 ---
 
@@ -130,13 +126,9 @@ Khi thuyết trình đồ án Niên luận chuyên ngành, bạn có thể thự
 
 1. **Thử nghiệm tìm kiếm thông minh:**
    * Mở Chatbot ở góc phải màn hình, bấm vào gợi ý mẫu: `"👔 Áo sơ mi 1m70 65kg"`.
-   * Cho thầy/cô thấy bot trả lời chính xác size M theo đúng số đo trong CSDL SQL mà không hề bịa đặt.
+   * Kiểm tra bảng size trong catalog và giải thích hệ thống đối chiếu số đo với dữ liệu đó; không khẳng định mọi câu hỏi luôn có duy nhất một size đúng.
 2. **Trình diễn công cụ RAG Inspector:**
    * Bấm nút **"RAG Trace"** ở góc trên khung chat.
-   * Màn hình sẽ hiện toàn bộ 3 bước:
-     * Bước 1: Từ khóa bóc tách (`1m70`, `65kg`, `áo`, `sơ`, `mi`).
-     * Bước 2: Danh sách tài liệu lấy từ SQL và điểm số tương đồng `similarity_score`.
-     * Bước 3: Toàn bộ nội dung Prompt đã ghép ngữ cảnh.
+   * Đọc `generation_mode`, query tokens, sản phẩm/tool được truy xuất, `similarity_score` nếu có và prompt/trace được trả về ở lượt đó.
 3. **Trình diễn tính toàn vẹn CSDL (SQL & Triggers):**
-   * Mua hàng và bấm "Thanh toán thành công" ở Cổng thanh toán ảo.
-   * Bấm nút **"SQL & Triggers"** trên thanh menu để mở bảng kiểm tra. Thầy cô sẽ thấy Trigger `trg_track_order_status` và `trg_log_inventory_change` tự động ghi nhận nhật ký vào bảng kiểm toán.
+   * Tạo checkout, dùng một thẻ/OTP mẫu được liệt kê trong README, rồi mở **"SQL & Triggers"** để xem log. Transaction và hoàn kho được xử lý bởi Python; SQLite triggers ghi nhận trạng thái đơn và biến động tồn kho.

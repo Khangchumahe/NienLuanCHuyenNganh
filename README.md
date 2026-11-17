@@ -1,6 +1,6 @@
 # 🛍️ AURA FASHION - WEBSITE BÁN QUẦN ÁO TÍCH HỢP RAG AI & THANH TOÁN ẢO
 > **Đề tài:** Niên luận Chuyên ngành Kỹ thuật Phần mềm  
-> **Ngôn ngữ & Công nghệ:** Python (Flask), SQLite3 (ACID, Triggers, Indexes, Stored Procedures), RAG Engine (Cosine Similarity Vector Search), HTML5 / Vanilla CSS / JavaScript ES6.
+> **Ngôn ngữ & Công nghệ:** Python (Flask), SQLite, Python transaction helpers và SQLite triggers, RAG truy xuất từ vựng có trọng số TF-IDF-style kết hợp cosine similarity, HTML5 / CSS / JavaScript.
 
 ---
 
@@ -17,29 +17,39 @@
 ## 1. GIỚI THIỆU ĐỀ TÀI
 Hệ thống là một nền tảng thương mại điện tử chuyên ngành thời trang với 3 trụ cột kỹ thuật:
 1. **Chatbot AI sử dụng RAG (Retrieval-Augmented Generation):** Tư vấn chọn size chuẩn xác theo chiều cao, cân nặng, phong cách dựa trên dữ liệu sản phẩm thực tế trong kho (không bị ảo giác/hallucination).
-2. **Cổng thanh toán ảo mô phỏng (Virtual Sandbox Payment):** Mô phỏng luồng thanh toán VNPAY/MoMo với mã giao dịch, kiểm tra chữ ký điện tử HMAC-SHA256 và cơ chế Webhook IPN.
-3. **Cơ sở dữ liệu quan hệ (SQL) tối ưu:** Áp dụng CRUD, Index B-Tree, Trigger tự động kiểm tra số lượng tồn kho và ghi log kiểm toán, Stored Procedure (Transaction ACID) đảm bảo trừ kho và đặt hàng an toàn tuyệt đối.
+2. **Cổng thanh toán mô phỏng:** Giao diện và payload theo giao thức ZaloPay Sandbox; ứng dụng không gọi API thanh toán bên ngoài. Backend kiểm tra chữ ký callback, dữ liệu thẻ/OTP mẫu, xử lý idempotent và hoàn tồn kho khi giao dịch thất bại.
+3. **Cơ sở dữ liệu quan hệ:** SQLite với transaction do các hàm Python điều khiển (`BEGIN IMMEDIATE`/rollback), index và SQLite triggers. Đây không phải stored procedures của MySQL/PostgreSQL.
 
 ---
 
 ## 2. CẤU TRÚC THƯ MỤC
 ```text
-NienLuanChuyenNganh/
+NienLuan_origin/
 ├── database/
-│   ├── schema.sql           # File DDL tạo bảng, Index và Triggers
-│   ├── db.py                # Kết nối SQLite, Seed data mẫu, Stored Procedure (Transaction)
-│   └── store.db             # File cơ sở dữ liệu SQLite (tự sinh khi chạy app)
+│   ├── schema.sql           # Schema SQLite, index và triggers
+│   ├── db.py                # ensure_schema, seed data, CRUD và transaction helpers
+│   └── store.db             # DB SQLite hiện được Git theo dõi
 ├── services/
-│   ├── rag_engine.py        # Pipeline RAG: Chunking, Cosine Similarity, Augmented Prompt, Trace
-│   └── payment_service.py   # Dịch vụ thanh toán ảo Sandbox và tạo chữ ký số HMAC-SHA256
+│   ├── rag_engine.py        # Lexical TF-IDF-style weighting, cosine, bộ lọc và trace
+│   ├── agentic_rag.py       # Gemini function calling và template fallback
+│   ├── rag_rules.py         # Quy tắc query/catalog dùng chung
+│   ├── payment_service.py   # Payment simulator, chữ ký và thẻ/OTP mẫu
+│   └── size_chart.py        # Tư vấn size
+├── admin_*.py               # Route admin dùng session/RBAC hiện có
+├── customer_portal.py       # Trang và API customer
+├── customer_migrate.py      # Tạo bảng liên kết đơn hàng customer
+├── seed_accounts.py         # CLI tạo tài khoản demo từ biến môi trường
+├── config/store_policies.json # Cấu hình chính sách cửa hàng
+├── docs/                    # Ghi chú rà soát
+├── tests/                   # Pytest và frontend smoke test
 ├── static/
-│   ├── css/
-│   │   └── style.css        # Giao diện hiện đại (Deep Slate, Vibrant Indigo, Glassmorphism)
-│   └── js/
-│       └── app.js           # Xử lý giỏ hàng, đặt hàng, Chatbot RAG và bộ RAG Inspector
-├── templates/
-│   └── index.html           # Giao diện chính người dùng (Client Storefront)
+│   ├── css/                 # Giao diện
+│   ├── img/                 # Ảnh placeholder
+│   └── js/                  # app.js và stylist-chat.js
+├── templates/               # Storefront, customer, product detail và chat
+├── Zalopaysandbox/          # JavaScript giao diện sandbox
 ├── app.py                   # Máy chủ Flask Backend (RESTful API & Webhooks)
+├── pytest.ini               # pytest chỉ thu thập tests/
 ├── requirements.txt         # Danh sách thư viện Python cần thiết
 ├── .gitignore               # Tệp loại trừ file tạm thời khi push lên Git
 ├── PHAN_TICH_YEU_CAU_HE_THONG.md # Tài liệu SRS phân tích yêu cầu nghiệp vụ, chức năng & phi chức năng
@@ -96,6 +106,53 @@ Khi chạy thành công, màn hình sẽ hiển thị:
 
 Mở trình duyệt bất kỳ (Chrome, Edge, Firefox) và truy cập: **`http://127.0.0.1:5000`**
 
+### Cấu hình biến môi trường
+
+Ứng dụng và `seed_accounts.py` nạp `.env` bằng `python-dotenv`. Không commit `.env`; các giá trị dưới đây chỉ là ví dụ giả.
+
+| Biến | Bắt buộc? | Ví dụ giả / hành vi |
+|---|---|---|
+| `APP_ENV` | Nên đặt rõ | `development`; chỉ giá trị này cho phép khóa tạm sinh riêng trong tiến trình. |
+| `SECRET_KEY` | Có ngoài development | `REPLACE_WITH_RANDOM_SECRET`; dùng cho session và callback checksum. Nếu thiếu ngoài development, app báo lỗi; trong development sinh khóa tạm và log cảnh báo. |
+| `FLASK_SECRET_KEY` | Không | `REPLACE_WITH_ANOTHER_RANDOM_SECRET`; fallback cho Flask session nếu `SECRET_KEY` chưa đặt, nhưng không thay thế khóa mà payment service yêu cầu ngoài development. |
+| `ZALOPAY_KEY1`, `ZALOPAY_KEY2` | Có ngoài development | `FAKE_ZP_KEY1`, `FAKE_ZP_KEY2`; khóa tạm trong development nếu bỏ trống. |
+| `ZALOPAY_APP_ID` | Không | `1234` (giả); mặc định trong code là 2553 ở development và 0 ngoài development. |
+| `FLASK_DEBUG` | Không | `0`; chỉ chuỗi `1` bật debug. |
+| `FLASK_COOKIE_SECURE` | Không | `0`; đặt `1` khi chạy qua HTTPS. |
+| `AURA_DB_PATH` | Không | `C:\\tmp\\aura-demo.db`; mặc định là `database/store.db`. |
+| `GEMINI_API_KEY` | Không | `FAKE_GEMINI_KEY`; thiếu key thì dùng template cục bộ. |
+| `GEMINI_MODEL` | Không | `gemini-2.5-flash` (mặc định hiện tại). |
+| `MOMO_PARTNER_CODE`, `MOMO_ACCESS_KEY`, `MOMO_SECRET_KEY` | Không / chưa dùng trong luồng đang chạy | Ví dụ giả `FAKE_MOMO_PARTNER`, `FAKE_MOMO_ACCESS`, `FAKE_MOMO_SECRET`; code chỉ khai báo cấu hình, không gọi API MoMo. |
+| `AURA_SUPPORT_PHONE` | Không | `0900000000` (số minh họa). |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`, `ADMIN_PHONE` | Không; cần email+mật khẩu nếu muốn seed ADMIN | `admin@example.test`; tự đặt mật khẩu mạnh, tối thiểu 8 ký tự. |
+| `STAFF_EMAIL`, `STAFF_PASSWORD`, `STAFF_NAME`, `STAFF_PHONE` | Không; cần email+mật khẩu nếu muốn seed STAFF | `staff@example.test`; ví dụ giả. STAFF hiện không có quyền admin. |
+| `CUSTOMER_EMAIL`, `CUSTOMER_PASSWORD`, `CUSTOMER_NAME`, `CUSTOMER_PHONE` | Không; cần email+mật khẩu nếu muốn seed CUSTOMER | `customer@example.test`; ví dụ giả. |
+
+### Tạo tài khoản demo
+
+Sao chép `.env.example` thành `.env`, điền email và mật khẩu mạnh cho nhóm cần dùng, rồi từ thư mục gốc chạy:
+
+```bash
+python seed_accounts.py
+```
+
+Script bỏ qua nhóm thiếu email hoặc mật khẩu, từ chối mật khẩu dưới 8 ký tự, và không in mật khẩu/hash. Chạy lại không đổi mật khẩu hoặc vai trò của email đã tồn tại. Đăng ký qua `POST /api/auth/register` luôn tạo `CUSTOMER`, kể cả khi gửi thêm `role`.
+
+### Kiểm thử
+
+```bash
+python -m pytest -q
+node tests/frontend_xss_smoke.cjs
+```
+
+`pytest.ini` giới hạn thu thập vào `tests/`; các script `test_*.py` ở thư mục gốc là script thử tay, không phải pytest suite.
+
+### Lưu ý khi nâng cấp cơ sở dữ liệu
+
+Khi mở một database cũ, ứng dụng tự áp dụng `database/schema.sql` qua `ensure_schema()` trong lúc khởi tạo; các câu lệnh `CREATE TABLE/INDEX IF NOT EXISTS` bổ sung đối tượng còn thiếu mà không xóa dữ liệu hiện có.
+
+Bảng `users` có thể chưa có tài khoản. Dùng mục **Tạo tài khoản demo** phía trên; trong repo không có mật khẩu mặc định. Quyền admin chỉ dành cho role `ADMIN`.
+
 ---
 
 ## 4. CÁC TÍNH NĂNG TRỌNG TÂM & CÁCH SỬ DỤNG
@@ -106,28 +163,26 @@ Mở trình duyệt bất kỳ (Chrome, Edge, Firefox) và truy cập: **`http:/
 3. Chọn màu sắc và kích cỡ (Size S, M, L, XL). Hệ thống sẽ hiển thị tồn kho realtime cho từng biến thể SKU.
 4. Bấm **"Thêm vào giỏ hàng"**.
 
-### 💳 4.2. Đặt Hàng & Cổng Thanh Toán ZaloPay Sandbox Gateway (Chính Thức)
-1. Bấm nút **"Giỏ hàng"** ở góc phải thanh Menu.
-2. Kiểm tra danh sách mặt hàng, điền thông tin người nhận (Tên, SĐT, Địa chỉ).
-3. Bấm **"Tiến Hành Thanh Toán Ảo (Virtual Sandbox)"**.
-4. Cửa sổ **ZaloPay Sandbox Gateway** hiện ra theo chuẩn giao thức nhà phát hành ZaloPay & SDK `zalopay.js`:
-   * **Thông tin kỹ thuật:** Mã đơn hàng, AppID (`2553`), AppTransID (`yyMMdd_xxxxxx`), Chữ ký số MAC HMAC-SHA256 chuẩn ZaloPay v2, đồng hồ đếm ngược 15:00.
-   * **Kênh 1 - Thẻ Quốc Tế (Visa / Mastercard / JCB):**
-     * Tích hợp sẵn danh sách **Thẻ tín dụng mẫu hoạt động được**:
-       * *Visa Platinum:* `4111 1111 1111 1111` | EXP: `12/28` | CVV: `123` (Thành công)
-       * *Mastercard World:* `5555 5555 5555 5555` | EXP: `10/27` | CVV: `456` (Thành công)
-       * *JCB Ultimate:* `3528 0000 0000 0000` | EXP: `08/29` | CVV: `789` (Thành công)
-       * *Thẻ Demo lỗi:* `4000 0000 0000 0002` (Mô phỏng từ chối do không đủ số dư để test Rollback kho).
-     * Chỉ cần **1-Click** vào thẻ mẫu là hệ thống tự động điền form.
-     * Bấm "Thanh toán an toàn" -> Chuyển sang bước xác thực **3D-Secure OTP** (Mã OTP mẫu: `111111`).
-   * **Kênh 2 - Thẻ ATM Nội Địa Napas:**
-     * Thẻ Napas ngân hàng NCB test: `9704 1985 2619 1432 198` (OTP: `123456`).
-     * Thẻ Napas ngân hàng Vietcombank test: `9704 3666 1234 5678`.
-   * **Kênh 3 - Ví ZaloPay QR:**
-     * Quét mã QR hoặc nhập tài khoản ví test `0912345678` (OTP: `111111`).
-   * **Xử lý toàn vẹn dữ liệu:**
-     * Khi hoàn tất thanh toán thành công: Kích hoạt Stored Procedure `sp_ProcessPaymentWebhook` chuyển trạng thái đơn hàng sang `PAID`, kích hoạt Trigger trừ kho & ghi log kiểm toán.
-     * Khi bấm **"Hủy giao dịch"**: Tự động kích hoạt cơ chế hoàn lại tồn kho đã giữ chỗ trong kho dữ liệu (Rollback Trigger).
+### 💳 4.2. Đặt hàng và thanh toán mô phỏng
+
+Checkout và thanh toán yêu cầu đăng nhập Customer. Tạo tài khoản bằng giao diện đăng ký hoặc cấu hình `CUSTOMER_*` rồi chạy `python seed_accounts.py`. Checkout tạo đơn `PENDING_PAYMENT`, trừ/giữ kho trong transaction SQLite, rồi mở giao diện mô phỏng.
+
+Mô phỏng tạo payload/MAC theo định dạng ZaloPay, nhưng **không gọi API ZaloPay hay ngân hàng thật**. Callback trong ứng dụng cần checksum hợp lệ. Simulator kiểm tra số thẻ mẫu, hạn, CVV (với thẻ tín dụng) và OTP; webhook xử lý idempotent. Đơn pending hết hạn sau 15 phút; app xử lý expiry khi các luồng liên quan gọi `expire_pending_orders()` (ví dụ checkout và các thao tác quản trị), không có tác vụ nền định kỳ.
+
+Thẻ và OTP mẫu trong `services/payment_service.py`:
+
+| Mẫu | Số thẻ | Hạn | CVV | OTP | Kết quả |
+|---|---|---|---|---|---|
+| Visa | `4111 1111 1111 1111` | `12/28` | `123` | `111111` | Thành công |
+| Mastercard | `5555 5555 5555 5555` | `10/27` | `456` | `111111` | Thành công |
+| JCB | `3528 0000 0000 0000` | `08/29` | `789` | `111111` | Thành công |
+| Visa demo bị từ chối | `4000 0000 0000 0002` | `12/28` | `123` | `111111` | Mô phỏng không đủ số dư |
+| Napas NCB | `9704 1985 2619 1432 198` | `07/30` | — | `123456` | Thành công |
+| Napas Vietcombank | `9704 3666 1234 5678` | `03/30` | — | `123456` | Thành công |
+
+Ví mô phỏng: ZaloPay `0912345678` và MoMo `0909999888`, cả hai dùng OTP `111111`. Đây là dữ liệu test, không phải tài khoản thanh toán thật.
+
+Transaction tạo đơn dùng `BEGIN IMMEDIATE`/rollback trong Python. SQLite triggers chặn tồn kho âm bằng `RAISE(ABORT)` và ghi log biến động kho/trạng thái đơn; hoàn kho do code Python xử lý khi thanh toán hủy/thất bại.
 
 ### 🤖 4.3. Chatbot Trợ Lý Thời Trang RAG
 1. Bấm vào nút nổi tròn **"Tư Vấn Chọn Size (RAG AI)"** ở góc dưới bên phải màn hình.
@@ -135,74 +190,56 @@ Mở trình duyệt bất kỳ (Chrome, Edge, Firefox) và truy cập: **`http:/
    * *"Tôi cao 1m70 nặng 65kg muốn tìm áo sơ mi đi làm"*
    * *"Gợi ý áo khoác chống nước đi phượt"*
    * *"Tìm đầm lụa dự tiệc cưới thanh lịch che khuyết điểm"*
-3. Chatbot sẽ tra cứu kho và trả về lời khuyên kèm theo các **thẻ sản phẩm** trực tiếp. Bấm vào thẻ sản phẩm để xem ngay thông tin.
+3. Chatbot truy vấn SQLite và trả lời bằng template; khi có `GEMINI_API_KEY`, Gemini chỉ chọn function/tool, còn câu trả lời và sản phẩm được dựng từ kết quả đã kiểm chứng trong DB. Bấm thẻ sản phẩm để xem chi tiết.
 
 ### 🔍 4.4. Công Cụ RAG Inspector (Minh Chứng Kỹ Thuật)
 * Ở đầu cửa sổ Chatbot, bấm nút **"RAG Trace"**.
-* Hệ thống sẽ hiển thị modal phân tích toàn diện 3 bước của RAG:
-  1. **Query Tokens:** Từ khóa bóc tách từ câu hỏi của bạn.
-  2. **Cosine Retrieval:** Danh sách tài liệu sản phẩm lấy từ CSDL SQL và điểm tương đồng (`similarity_score`).
-  3. **Augmented Prompt:** Toàn bộ nội dung prompt được tiêm ngữ cảnh gửi cho AI.
+* Trace hiển thị `generation_mode`: `template` hoặc `llm_router + template_render`, cùng query tokens, tool calls, sản phẩm truy xuất và điểm cosine. Hệ thống dùng TF-IDF-style lexical weighting + cosine trên SQLite, kèm bộ lọc số đo/size, giá, màu, chất liệu, danh mục và tồn kho; không dùng embedding hay vector database.
 
 ### ⚡ 4.5. Kiểm Tra CSDL SQL & Triggers (SQL Audit)
 * Trên thanh menu chính, bấm nút **"SQL & Triggers"**.
-* Modal sẽ hiển thị tổng số sản phẩm, biến thể, đơn hàng và bảng nhật ký kích hoạt thực tế của Trigger `trg_track_order_status` và `trg_log_inventory_change`.
+* Modal hiển thị thống kê sản phẩm/biến thể/đơn hàng và log SQLite triggers `trg_track_order_status`, `trg_log_inventory_change`; endpoint yêu cầu role `ADMIN`.
+
+### Xác thực và phân quyền
+
+Đăng nhập tại `POST /api/auth/login` xác minh email/mật khẩu rồi lưu `user_id` và CSRF token trong Flask session cookie được ký bằng `SECRET_KEY` (hoặc `FLASK_SECRET_KEY` làm fallback của Flask). Mật khẩu băm PBKDF2-HMAC-SHA256 với salt ngẫu nhiên và 600.000 iterations. Role trong DB là `ADMIN`, `STAFF`, `CUSTOMER`; đăng ký `POST /api/auth/register` chỉ tạo `CUSTOMER`. `GET /api/auth/me` và `POST /api/auth/logout` cần đăng nhập; logout cần thêm CSRF. Checkout và các route xử lý thanh toán (`POST /api/orders/checkout`, `/api/payment/process-card`, `/api/payment/simulate-callback`) cần session `CUSTOMER` và CSRF. Các route `/api/admin/stats`, `/api/ai/sync-rag` và route quản trị sản phẩm/biến thể/đơn hàng cần `ADMIN`; route ghi còn cần CSRF. Danh mục và chat (`/api/products`, `/api/ai/chat`) đọc công khai. Không dùng JWT/OAuth.
+
+### Giới hạn đã biết
+
+- Sau checkout/thanh toán thành công, app đồng bộ lại toàn bộ Knowledge Base RAG từ SQLite; phù hợp demo nhỏ nhưng có thể tăng độ trễ khi catalog lớn.
+- Rate limit chat là 20 request/phút/IP, lưu trong bộ nhớ của một tiến trình; không chia sẻ giữa nhiều worker.
+- `static/js/app.js` chưa được tách thành ES modules.
+- Chưa kiểm tra đầy đủ mọi viewport, thao tác bàn phím và focus accessibility.
+- `database/store.db` đang được Git theo dõi; pytest hiện dùng DB tạm, không dùng file này.
 
 ---
 
 ## 5. QUY TRÌNH LÀM VIỆC NHÓM QUA GIT & GITHUB
 
-Để 3 thành viên trong nhóm làm việc nhịp nhàng, không bị đè code lên nhau (conflict), hãy tuân thủ quy trình sau:
+Nhánh tính năng của nhóm được dùng làm nhánh nền là `feature/ai-rag-payment`; nhánh rà soát hiện tại là `fix/review-improvements`. Tạo nhánh công việc từ nhánh nền, giữ commit theo nhóm thay đổi và mở PR quay lại `feature/ai-rag-payment` sau khi review. Không mặc định kéo hoặc merge `main` trong quy trình này.
 
-### 👥 Phân chia nhánh (Branching Strategy):
-* **Nhánh chính (`main`):** Chỉ chứa code đã test kỹ, chạy ổn định (dùng để báo cáo và thuyết trình).
-* **Thành viên 1 (Frontend & UI):** Làm việc trên nhánh `feature/frontend-ui`
-* **Thành viên 2 (Backend & Database SQL):** Làm việc trên nhánh `feature/backend-sql`
-* **Thành viên 3 (AI RAG & Payment):** Làm việc trên nhánh `feature/ai-rag-payment`
-
-### 💻 Quy trình làm việc hàng ngày:
-
-#### 1. Lấy code mới nhất từ nhánh `main` về:
 ```bash
-git checkout main
-git pull origin main
+git fetch origin
+git switch feature/ai-rag-payment
+git pull --ff-only origin feature/ai-rag-payment
+git switch -c codex/<ten-cong-viec>
+# chỉnh sửa, chạy test, stage đúng file
+git add <file-da-xem-xet>
+git commit -m "fix(scope): mô tả thay đổi"
+git push -u origin codex/<ten-cong-viec>
 ```
 
-#### 2. Tạo hoặc chuyển sang nhánh chức năng của mình:
-```bash
-# Ví dụ thành viên 1 làm frontend:
-git checkout -b feature/frontend-ui
-# Nếu nhánh đã có từ trước:
-git checkout feature/frontend-ui
-```
-
-#### 3. Sau khi chỉnh sửa code, commit và đẩy lên GitHub:
-```bash
-git add .
-git commit -m "feat(ui): chỉnh sửa giao diện chi tiết sản phẩm và bảng size"
-git push -u origin feature/frontend-ui
-```
-
-#### 4. Tạo Pull Request (PR) trên GitHub:
-* Lên trang web GitHub của Repository.
-* Bấm **"Compare & pull request"**.
-* Gắn thẻ 2 thành viên còn lại để review code trước khi gộp (Merge) vào nhánh `main`.
+Sau đó tạo PR với base `feature/ai-rag-payment`; nhóm review và gộp theo quy ước repo.
 
 ---
 
 ## 6. KỊCH BẢN DEMO BÁO CÁO CHO GIẢNG VIÊN
 
-Khi lên báo cáo môn Niên luận chuyên ngành, nhóm nên thực hiện theo thứ tự 3 bước sau:
+Trước demo, cấu hình `.env`, chạy `python seed_accounts.py`, rồi khởi động `python app.py`. Đăng nhập bằng tài khoản Customer seeded để checkout; dùng tài khoản Admin seeded cho `/admin/dashboard` và SQL Audit.
 
-1. **Bước 1 (Trình diễn Nghiệp vụ Bán hàng & Triggers SQL):**
-   * Mở web, chọn sản phẩm, chọn size/màu.
-   * Đặt hàng và thực hiện thanh toán ảo thành công.
-   * Mở modal **"SQL & Triggers"** để giảng viên thấy Trigger CSDL tự động ghi log trạng thái và xuất kho.
-2. **Bước 2 (Trình diễn Chatbot RAG AI):**
-   * Nhập câu hỏi tư vấn chiều cao cân nặng vào Chatbot AI.
-   * Cho thầy/cô thấy bot tư vấn chính xác size áo dựa vào dữ liệu thực tế của shop.
-3. **Bước 3 (Minh chứng Kỹ thuật RAG với RAG Inspector):**
-   * Bấm **"RAG Trace"** trên khung chat để giải thích công thức Cosine Similarity và cách Augmented Prompt hoạt động.
+1. **Checkout và thanh toán:** chọn sản phẩm/biến thể, tạo đơn chờ thanh toán, dùng thẻ Visa `4111 1111 1111 1111`, hạn `12/28`, CVV `123`, OTP `111111` để mô phỏng thành công. Có thể dùng Visa demo bị từ chối `4000 0000 0000 0002` với cùng hạn/CVV/OTP để trình diễn lỗi số dư. Napas NCB `9704 1985 2619 1432 198` hạn `07/30`, OTP `123456`; Napas Vietcombank `9704 3666 1234 5678`, hạn `03/30`, OTP `123456`. Ví ZaloPay `0912345678` hoặc MoMo `0909999888`, OTP `111111`.
+2. **SQL Audit:** mở modal để xem số liệu và log SQLite triggers sau trạng thái đơn; transaction đặt hàng và phần hoàn kho nằm trong Python, không phải stored procedure SQL.
+3. **Chat/RAG Trace:** hỏi ví dụ “Tôi cao 1m70 nặng 65kg muốn tìm áo sơ mi đi làm”, mở RAG Trace và chỉ ra `generation_mode`, tool/retrieval evidence, bộ lọc catalog và cosine score. Không mô tả kết quả là embedding/vector DB.
 
 ---
 *Chúc nhóm hoàn thành xuất sắc đồ án Niên luận chuyên ngành Kỹ thuật Phần mềm!* 🎓

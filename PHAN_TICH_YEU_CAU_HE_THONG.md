@@ -7,7 +7,7 @@
 ---
 
 ## 1. TỔNG QUAN DỰ ÁN
-Hệ thống là một nền tảng thương mại điện tử chuyên ngành thời trang (quần áo), kết hợp công nghệ Trí tuệ nhân tạo (AI RAG Chatbot) nhằm tối ưu trải nghiệm mua sắm, tự động tư vấn size, phối đồ, và giải đáp thắc mắc về đơn hàng. Hệ thống tích hợp cổng thanh toán trực tuyến mô phỏng (Sandbox/Virtual Payment) và sử dụng cơ sở dữ liệu quan hệ (SQL) được tối ưu hóa sâu với CRUD, Indexes, Stored Procedures và Triggers nhằm đảm bảo tính toàn vẹn dữ liệu và hiệu năng truy vấn.
+Tài liệu này giữ các FR/NFR ban đầu làm mục tiêu yêu cầu; không phải mọi yêu cầu đã được triển khai. Code hiện tại là ứng dụng thương mại điện tử Flask/SQLite có checkout, thanh toán mô phỏng, xác thực bằng session, admin/customer routes và chatbot RAG. Giao dịch đơn hàng là hàm Python điều khiển SQLite transaction (`BEGIN IMMEDIATE`/rollback); các trigger là SQLite triggers. Không có stored procedure MySQL/PostgreSQL.
 
 ---
 
@@ -25,18 +25,22 @@ Hệ thống là một nền tảng thương mại điện tử chuyên ngành t
 
 ### 2.3. Quy trình Nghiệp vụ Thanh toán Ảo (Mock/Sandbox Payment)
 * **Khởi tạo giao dịch:** Khi xác nhận thanh toán, đơn hàng được tạo với trạng thái `PENDING_PAYMENT` và sinh mã giao dịch duy nhất (`TransactionCode`).
-* **Cổng thanh toán ảo:** Chuyển hướng người dùng sang giao diện thanh toán mô phỏng (tương tự VNPAY / MoMo / Stripe Test). Cung cấp các kịch bản thử nghiệm:
+* **Yêu cầu ban đầu về cổng thanh toán:** Chuyển hướng người dùng sang giao diện thanh toán mô phỏng và cung cấp các kịch bản thử nghiệm:
   * Thanh toán thành công (`SUCCESS`): Cập nhật trạng thái đơn sang `PAID`, kích hoạt trừ tồn kho, gửi thông báo.
   * Hủy thanh toán (`CANCELLED`): Trả lại trạng thái đơn hàng.
   * Lỗi giao dịch (`FAILED`): Cho phép khách hàng chọn thanh toán lại hoặc chọn hình thức COD.
 * **Tính bất biến giao dịch (Audit Log):** Mọi sự kiện giao dịch thanh toán đều được lưu vết chi tiết (IP, thời gian, số tiền, mã phản hồi) để phục vụ đối soát.
 
+  **Hiện trạng:** luồng đang chạy là simulator cục bộ với payload/MAC theo định dạng ZaloPay; không gọi API ZaloPay, VNPAY, MoMo hoặc Stripe. Callback checksum, thẻ/OTP mẫu, idempotency và expiry đơn được xử lý trong app/SQLite; không có lưu đầy đủ IP/payload đối soát theo yêu cầu gốc.
+
 ### 2.4. Quy trình Nghiệp vụ Chatbot AI Trợ lý Tư vấn Thời trang (RAG)
-* **Cơ chế RAG (Retrieval-Augmented Generation):**
-  * **Knowledge Base Sản phẩm:** Định kỳ hoặc realtime đồng bộ thông tin quần áo (tên, mô tả chất liệu, bảng size, màu sắc, phong cách, giá bán, tình trạng còn hàng) vào Cơ sở dữ liệu Vector (ChromaDB / pgvector / Pinecone / Qdrant).
+* **Yêu cầu gốc về chatbot RAG (Retrieval-Augmented Generation):**
+  * **Knowledge Base Sản phẩm:** Định kỳ hoặc realtime đồng bộ thông tin quần áo vào kho truy xuất.
   * **Truy vấn tư vấn:** Khách hàng hỏi (ví dụ: *"Tôi cao 1m70, nặng 65kg, muốn tìm áo sơ mi đi tiệc dưới 500k"*).
-  * **Trích xuất thông tin & Gợi ý:** Hệ thống semantic search tìm kiếm các sản phẩm phù hợp nhất trong kho dữ liệu, chuyển kèm ngữ cảnh (Context) vào LLM (Gemini / OpenAI) để sinh câu trả lời tư vấn lịch sự, kèm liên kết trực tiếp đến sản phẩm.
+  * **Trích xuất thông tin & Gợi ý:** Tìm sản phẩm phù hợp, chuyển context cho logic trả lời và kèm liên kết trực tiếp đến sản phẩm.
   * **Giới hạn phạm vi (Guardrails):** Chatbot chỉ trả lời các câu hỏi liên quan đến sản phẩm, tư vấn thời trang, chính sách đổi trả, hướng dẫn mua hàng của cửa hàng; từ chối trả lời các chủ đề ngoài phạm vi.
+
+  **Hiện trạng:** catalog được dựng trong bộ nhớ từ SQLite; truy xuất dùng lexical weighting kiểu TF-IDF kết hợp cosine similarity và bộ lọc catalog, không dùng embedding/vector database. Khi có Gemini key, Gemini chỉ chọn function/tool; Python render câu trả lời từ kết quả SQLite. Nếu không có key, dùng template/local rules.
 
 ---
 
@@ -93,48 +97,83 @@ Hệ thống là một nền tảng thương mại điện tử chuyên ngành t
 
 ---
 
-## 5. THIẾT KẾ CƠ SỞ DỮ LIỆU SQL NÂNG CAO
+## PHẠM VI THỰC HIỆN
 
-### 5.1. Danh sách các Bảng Dữ liệu (Tables)
-1. `users` (id, email, password_hash, full_name, phone, role, created_at)
-2. `categories` (id, name, slug, parent_id, is_active)
-3. `products` (id, category_id, name, slug, description, material, price, discount_price, is_published, created_at)
-4. `product_variants` (id, product_id, sku, color, size, stock_quantity, image_url)
-5. `orders` (id, user_id, order_code, total_amount, discount_amount, final_amount, status, shipping_address, created_at)
-6. `order_items` (id, order_id, variant_id, quantity, unit_price, subtotal)
-7. `payments` (id, order_id, transaction_code, payment_method, amount, status, response_payload, created_at)
-8. `inventory_logs` (id, variant_id, change_type, quantity_change, note, created_at)
-9. `order_status_history` (id, order_id, old_status, new_status, changed_by, changed_at)
+Các FR/NFR gốc phía trên được giữ nguyên như yêu cầu mục tiêu. Trạng thái dưới đây mô tả code hiện tại; yêu cầu gốc không được hiểu là đã triển khai chỉ vì có mặt trong SRS.
 
-### 5.2. Danh mục Chỉ mục (Indexes) để Tối ưu Truy vấn
-* `idx_products_category_published`: B-Tree composite index trên `(category_id, is_published)` tăng tốc duyệt theo danh mục.
-* `idx_products_price`: Index trên cột `discount_price` phục vụ việc lọc và sắp xếp theo giá.
-* `idx_variants_product`: Index trên `product_id` để nạp nhanh toàn bộ biến thể size/màu khi xem chi tiết.
-* `idx_orders_user_created`: Composite index `(user_id, created_at DESC)` tăng tốc tra cứu lịch sử mua hàng cá nhân.
-* `idx_payments_transcode`: Unique index trên `transaction_code` để tìm kiếm tức thì khi webhook thanh toán trả về.
-
-### 5.3. Danh mục Stored Procedures (Thủ tục Lưu trữ)
-1. `sp_CreateOrderAndDeductStock`:
-   * Nhận vào thông tin khách hàng, danh sách các item (variant_id, quantity).
-   * Mở Transaction: kiểm tra tồn kho, tạo bản ghi `orders` và `order_items`, ghi nhận `payments` tạm thời, trừ tồn kho. Rollback nếu bất kỳ biến thể nào không đủ hàng.
-2. `sp_ProcessPaymentWebhook`:
-   * Tiếp nhận kết quả thanh toán từ cổng ảo.
-   * Cập nhật bảng `payments` và chuyển trạng thái đơn hàng trong `orders`.
-   * Ghi nhận log thay đổi.
-3. `sp_GetMonthlyRevenueReport`:
-   * Tổng hợp doanh thu, số đơn hoàn thành, số đơn hủy, giá trị đơn trung bình (AOV) theo từng tháng/năm phục vụ trang Dashboard Admin.
-
-### 5.4. Danh mục Triggers (Ràng buộc Nghiệp vụ Tự động)
-1. `trg_AfterOrderPaid_LogInventory`:
-   * Khi trạng thái đơn hàng đổi sang `PAID`, trigger tự động ghi bản ghi vào bảng `inventory_logs` để theo dõi nhật ký xuất kho.
-2. `trg_PreventNegativeStock`:
-   * Trigger chặn thao tác `UPDATE` trên `product_variants` nếu `stock_quantity < 0`, bắn ra ngoại lệ SQL `SIGNAL SQLSTATE '45000'` kèm thông báo lỗi cụ thể.
-3. `trg_TrackOrderStatusChange`:
-   * Trigger tự động bắt sự kiện `UPDATE` trên cột `status` của bảng `orders` để chèn 1 dòng mới vào bảng `order_status_history`.
+| Mã | Trạng thái | Bằng chứng hiện trạng |
+|---|---|---|
+| FR-01 | Làm một phần | `app.py` dùng register/login và session; `database/db.py` băm PBKDF2; `tests/test_seed_accounts.py` kiểm tra đăng nhập. Chưa có đổi mật khẩu/address book; không dùng JWT/OAuth. |
+| FR-02 | Làm một phần | `app.py:api_products` và `database/db.py:get_all_products` hỗ trợ search/category; RAG lọc giá/size/màu/chất liệu/tồn. Chưa có full-text, sắp xếp theo bán chạy hoặc nhiều bộ lọc storefront. |
+| FR-03 | Làm một phần | `templates/product_detail.html`, `database/db.py:get_product_by_id`, `services/size_chart.py`; không có hệ thống reviews/comments. |
+| FR-04 | Làm một phần | `static/js/app.js` giữ cart phía client; `tests/test_review_backend.py::test_invalid_quantities_are_rejected_without_changing_stock` kiểm tra giới hạn server. Không có coupon/voucher. |
+| FR-05 | Làm một phần | `database/db.py:sp_create_order_and_deduct_stock` và `tests/test_review_backend.py` kiểm tra đặt hàng/payment; checkout dùng simulator, chưa có luồng COD hoàn chỉnh hay thông báo giao dịch ngoài giao diện. |
+| FR-06 | Làm một phần | `customer_portal.py` và `services/agentic_tools.py:db_lookup_order_for_customer` có tra đơn; `tests/test_rag_quality.py` kiểm tra auth/ownership. Không có mọi trạng thái hay lịch sử giao dịch/IP theo yêu cầu gốc. |
+| FR-07 | Đã làm | `services/agentic_rag.py`, `static/js/stylist-chat.js`; `tests/test_chat_regression.py` và `tests/test_rag_quality.py` kiểm tra intent, truy xuất, size và guardrails. |
+| FR-08 | Làm một phần | `admin_products.py`, `admin_variants.py` cho CRUD sản phẩm/biến thể và publish toggle; chưa có CRUD danh mục hoặc thư viện ảnh riêng. |
+| FR-09 | Làm một phần | Tồn theo SKU trong `database/db.py`; `admin_dashboard.py` đếm low-stock; chưa có phiếu nhập kho. |
+| FR-10 | Làm một phần | `admin_orders.py` xem/cập nhật đơn; `tests/test_review_backend.py` kiểm tra webhook/hủy/hoàn tồn. Chưa có workflow vận chuyển/hoàn tiền đầy đủ. |
+| FR-11 | Chưa làm (để phát triển sau) | Không có promotion/coupon model hoặc route trong `database/schema.sql`, `admin_*.py`. |
+| FR-12 | Làm một phần | `app.py:api_sync_rag`, `services/rag_engine.py:sync_knowledge_base` và RAG Trace; `tests/test_review_backend.py::test_admin_stats_and_rag_sync_require_existing_admin_role`. Không có vector DB hoặc nhật ký hội thoại quản trị. |
+| FR-13 | Làm một phần | `admin_dashboard.py` và `database/db.py:get_db_stats` cung cấp counts/summary/logs; chưa có biểu đồ doanh thu theo thời gian, top seller hay conversion. |
+| FR-14 | Chưa làm (để phát triển sau) | `services/rag_engine.py` dùng lexical weighting/cosine, không tạo embedding hoặc kết nối vector database; `tests/test_rag_quality.py` kiểm tra retriever hiện tại. |
+| FR-15 | Làm một phần | `services/agentic_rag.py` gọi Gemini function-calling để chọn tool và code dựng câu trả lời; `tests/test_chat_regression.py::test_agentic_trace_identifies_gemini_router_with_template_rendering`. Không dùng LLM để viết câu trả lời cuối. |
+| FR-16 | Đã làm | `services/payment_service.py`, `database/db.py:sp_process_payment_webhook`; `tests/test_review_backend.py` kiểm tra checksum, idempotency, OTP và expiry. Đây là simulator, không phải IPN từ gateway thật. |
+| NFR-01 | Làm một phần | `database/schema.sql` có index cho catalog/variants/orders/payments; chưa có benchmark chứng minh `<200ms` ở 10.000 sản phẩm. |
+| NFR-02 | Làm một phần | `app.py:api_ai_chat` hỗ trợ response NDJSON; chưa có đo SLA `<2.5s` hoặc benchmark tải. |
+| NFR-03 | Làm một phần | `database/db.py` có Python transaction helpers và schema indexes; không có stored procedures SQL, báo cáo truy vấn hay bằng chứng không full-scan cho mọi truy vấn. |
+| NFR-04 | Làm một phần | `database/db.py:sp_create_order_and_deduct_stock` kiểm tra/trừ kho trong transaction `BEGIN IMMEDIATE`/rollback; `database/schema.sql` dùng trigger SQLite `RAISE(ABORT)` để chặn tồn âm khi UPDATE. Trigger không kiểm tra/trừ kho tại INSERT `order_items` như yêu cầu gốc; `tests/test_review_backend.py` kiểm tra rollback/oversell. |
+| NFR-05 | Làm một phần | SQLite triggers `trg_track_order_status` và `trg_log_inventory_change` ghi status/stock; không có trigger audit biến động giá. |
+| NFR-06 | Làm một phần | `app.py:require_login`, `require_admin`, `require_customer_payment` dùng session và role; `tests/test_seed_accounts.py` kiểm tra admin/customer. Không dùng JWT access/refresh token. |
+| NFR-07 | Làm một phần | SQL parameterization, CSRF, escaping, callback validation và chat rate limit có trong `app.py`, `static/js/*.js`; `tests/test_review_backend.py`/`tests/frontend_xss_smoke.cjs` bao phủ một số trường hợp, không phải audit bảo mật đầy đủ. |
+| NFR-08 | Làm một phần | `database/db.py:_hash_password` dùng PBKDF2-HMAC-SHA256, salt ngẫu nhiên, 600.000 iterations; không dùng BCrypt như yêu cầu gốc. |
+| NFR-09 | Làm một phần | CSS responsive có trong `static/css/` và templates; chưa xác minh đầy đủ mọi viewport/keyboard/accessibility. |
+| NFR-10 | Đã làm | `app.py:handle_http_error`, `handle_unexpected_error`; `tests/test_review_backend.py::test_chat_limit_and_http_errors_use_consistent_json` kiểm tra JSON lỗi và không lộ chi tiết 500. |
 
 ---
 
-## 6. KIẾN TRÚC TÍCH HỢP RAG (RETRIEVAL-AUGMENTED GENERATION)
+## 5. CẤU TRÚC CƠ SỞ DỮ LIỆU SQLITE HIỆN TẠI
+
+### 5.1. Danh sách các Bảng Dữ liệu (Tables)
+1. `users` (id, email, password_hash, full_name, phone, role, is_active, created_at)
+2. `customer_order_links` (order_id, user_id) — liên kết customer với đơn; đơn guest cũ có thể không có liên kết.
+3. `categories` (id, name, slug, description, is_active)
+4. `products` (id, category_id, name, slug, price, discount_price, material, style, size_guide, description, image_url, is_published, created_at)
+5. `product_variants` (id, product_id, sku, color, size, stock_quantity, created_at)
+6. `orders` (id, order_code, customer_name, customer_phone, customer_address, total_amount, status, payment_method, created_at)
+7. `order_items` (id, order_id, variant_id, quantity, unit_price, subtotal)
+8. `payments` (id, order_id, transaction_code, amount, payment_gateway, status, checksum_signature, created_at)
+9. `inventory_logs` (id, variant_id, change_quantity, remaining_stock, reason, created_at)
+10. `order_status_history` (id, order_id, old_status, new_status, note, changed_at)
+
+Schema hiện ở [database/schema.sql](database/schema.sql); `database/db.py:ensure_schema()` áp schema idempotent khi khởi tạo/đầu kết nối. Vai trò hợp lệ là `ADMIN`, `STAFF`, `CUSTOMER`.
+
+### 5.2. Danh mục Chỉ mục (Indexes) để Tối ưu Truy vấn
+* `idx_products_category` trên `(category_id, is_published)`.
+* `idx_products_price` trên `(discount_price, price)`.
+* `idx_variants_product` trên `product_id`.
+* `idx_orders_code` trên `order_code` (cột cũng có UNIQUE constraint).
+* `idx_payments_transaction` trên `transaction_code` (cột cũng có UNIQUE constraint).
+* `idx_customer_order_user` trên `customer_order_links.user_id`; email có UNIQUE index SQLite tạo tự động.
+
+### 5.3. Python transaction helpers (không phải stored procedures SQL)
+1. `database/db.py:sp_create_order_and_deduct_stock` nhận giỏ hàng, mở `BEGIN IMMEDIATE`, kiểm tra và ghi order/items/payment, trừ kho; rollback khi lỗi.
+2. `database/db.py:sp_process_payment_webhook` cập nhật giao dịch còn PENDING và đơn còn PENDING_PAYMENT; callback lặp không hoàn kho lần hai.
+3. `database/db.py:expire_pending_orders` chuyển đơn PENDING quá 15 phút qua nhánh CANCELLED để hoàn kho.
+4. `sp_*` là tên hàm Python tương thích code hiện tại, không phải stored procedure được khai báo trong SQLite. Không có `sp_GetMonthlyRevenueReport`.
+
+### 5.4. Danh mục Triggers (Ràng buộc Nghiệp vụ Tự động)
+1. `trg_prevent_negative_stock`: BEFORE UPDATE trên `product_variants.stock_quantity`, dùng `RAISE(ABORT, ...)` của SQLite nếu giá trị mới âm.
+2. `trg_track_order_status`: AFTER UPDATE trạng thái `orders`, ghi `order_status_history` khi trạng thái đổi.
+3. `trg_log_inventory_change`: AFTER UPDATE tồn kho, ghi lượng thay đổi và tồn còn lại vào `inventory_logs`.
+
+Trừ kho/hoàn kho do Python transaction xử lý; trigger không tự giảm kho khi payment chuyển PAID.
+
+---
+
+## 6. KIẾN TRÚC RAG MỤC TIÊU TRONG YÊU CẦU GỐC (CHƯA TRIỂN KHAI)
+
+Sơ đồ dưới đây giữ lại yêu cầu gốc về embedding/vector DB; đây là kiến trúc mục tiêu để phát triển sau, không phải mô tả hệ thống đang chạy.
 
 ```
 [Người dùng đặt câu hỏi]
@@ -161,5 +200,9 @@ Hệ thống là một nền tảng thương mại điện tử chuyên ngành t
 └──────────────┬────────────────┘
                │ (4) Trả lời gợi ý & link sản phẩm
                ▼
-[Khách hàng nhận tư vấn chính xác 100% dựa trên kho hiện tại]
+[Mục tiêu yêu cầu: khách hàng nhận tư vấn dựa trên kho hiện tại]
 ```
+
+### 6.1. Luồng RAG đang triển khai
+
+`services/rag_engine.py` đồng bộ catalog từ SQLite vào bộ nhớ, tạo token và trọng số từ vựng kiểu TF-IDF, tính cosine similarity, rồi áp bộ lọc số đo, giá, màu, size, chất liệu và tồn kho. Không tạo embedding và không kết nối vector database. `services/agentic_rag.py` dùng Gemini (nếu có `GEMINI_API_KEY`) để chọn function/tool; Python xác minh đối số, lấy dữ liệu từ SQLite và dựng câu trả lời. Khi không có key hoặc không dùng router Gemini, trace hiển thị `generation_mode: template`; khi Gemini chọn tool và kết quả được dựng theo template, trace hiển thị `generation_mode: llm_router + template_render`.
