@@ -43,6 +43,13 @@ app.config.update(
 )
 
 
+def debug_enabled(value=None):
+    """Enable Flask debug only for the explicit value FLASK_DEBUG=1."""
+    if value is None:
+        value = os.environ.get('FLASK_DEBUG')
+    return value == '1'
+
+
 @app.errorhandler(HTTPException)
 def handle_http_error(error):
     messages = {
@@ -327,8 +334,12 @@ _chat_requests_lock = Lock()
 def _chat_rate_allowed(address):
     now = monotonic()
     with _chat_requests_lock:
-        while _chat_requests and next(iter(_chat_requests.values()))[0] <= now:
-            _chat_requests.popitem(last=False)
+        expired_addresses = [
+            address for address, (expires, _) in _chat_requests.items()
+            if expires <= now
+        ]
+        for expired_address in expired_addresses:
+            _chat_requests.pop(expired_address, None)
         if address not in _chat_requests and len(_chat_requests) >= 4096:
             return False
         expires, count = _chat_requests.get(address, (now + 60, 0))
@@ -466,4 +477,4 @@ register_customer_routes(
 
 if __name__ == '__main__':
     app.logger.info("Đang khởi chạy AURA Fashion tại http://127.0.0.1:5000")
-    app.run(host='127.0.0.1', port=5000, debug=os.environ.get('FLASK_DEBUG') == '1')
+    app.run(host='127.0.0.1', port=5000, debug=debug_enabled())

@@ -14,7 +14,6 @@ os.environ.setdefault("GEMINI_API_KEY", "")
 os.environ.setdefault("ZALOPAY_KEY1", "pytest-zalopay-key1")
 os.environ.setdefault("ZALOPAY_KEY2", "pytest-zalopay-key2")
 os.environ.setdefault("MOMO_SECRET_KEY", "pytest-momo-secret")
-os.environ.setdefault("ADMIN_TOKEN", "")
 
 
 @pytest.fixture(autouse=True)

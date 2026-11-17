@@ -10,20 +10,45 @@ Tích hợp chuẩn cổng thanh toán chính thức của ZaloPay & MoMo Sandbo
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
+import secrets
 import time
 from datetime import datetime
 from database.db import sp_process_payment_webhook
 
 _development = os.environ.get('APP_ENV', '').lower() == 'development'
 
+logger = logging.getLogger(__name__)
+
+
+def _load_payment_keys():
+    names = ('SECRET_KEY', 'ZALOPAY_KEY1', 'ZALOPAY_KEY2')
+    keys = {name: os.environ.get(name, '').strip() for name in names}
+    missing = [name for name, value in keys.items() if not value]
+    if missing and not _development:
+        raise RuntimeError(
+            'Thiếu cấu hình khóa bắt buộc: ' + ', '.join(missing)
+        )
+    if missing:
+        for name in missing:
+            keys[name] = secrets.token_hex(32)
+        logger.warning(
+            'Thiếu khóa thanh toán trong môi trường development (%s); '
+            'đã sinh khóa tạm thời riêng cho tiến trình.', ', '.join(missing)
+        )
+    return keys
+
+
+_PAYMENT_KEYS = _load_payment_keys()
+
 # Sandbox credentials are supplied through the environment. The development app
 # keeps the simulator usable without credentials; it does not call the gateway.
 ZALOPAY_SANDBOX_CONFIG = {
     "app_id": int(os.environ.get('ZALOPAY_APP_ID') or (2553 if _development else 0)),
-    "key1": os.environ.get('ZALOPAY_KEY1', ''),
-    "key2": os.environ.get('ZALOPAY_KEY2', ''),
+    "key1": _PAYMENT_KEYS['ZALOPAY_KEY1'],
+    "key2": _PAYMENT_KEYS['ZALOPAY_KEY2'],
     "endpoint": "https://sb-openapi.zalopay.vn/v2/create",
     "gateway_name": "ZaloPay Sandbox Gateway",
     "version": "2.0"
@@ -38,7 +63,7 @@ MOMO_SANDBOX_CONFIG = {
 }
 
 # Key bảo mật mặc định dự phòng cho checksum
-SECRET_KEY = os.environ.get('SECRET_KEY', '')
+SECRET_KEY = _PAYMENT_KEYS['SECRET_KEY']
 
 # =====================================================================
 # DANH SÁCH THẺ TÍN DỤNG & TÀI KHOẢN MẪU HOẠT ĐỘNG ĐƯỢC (TEST CARDS)

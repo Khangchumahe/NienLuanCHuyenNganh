@@ -320,3 +320,123 @@ def test_chat_limit_and_http_errors_use_consistent_json(monkeypatch):
     assert failed.get_json() == {
         "success": False, "error": "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."
     }
+
+
+def test_empty_secret_key_signature_is_rejected_by_payment_callback(monkeypatch):
+    import hashlib
+    import hmac
+    from app import app
+
+    user_id = _user_id("empty-key@example.test")
+    order = _order(user_id)
+    client = app.test_client()
+    client.post("/api/auth/login", json={
+        "email": "empty-key@example.test", "password": "review-password"
+    })
+    with client.session_transaction() as session:
+        headers = {"X-CSRF-Token": session["csrf_token"]}
+
+    message = f"{order['transaction_code']}|{order['total_amount']}|"
+    empty_key_signature = hmac.new(b"", message.encode(), hashlib.sha256).hexdigest()
+    response = client.post("/api/payment/simulate-callback", json={
+        "transaction_code": order["transaction_code"],
+        "status": "SUCCESS",
+        "amount": order["total_amount"],
+        "checksum": empty_key_signature,
+    }, headers=headers)
+    assert response.status_code == 403
+    assert response.get_json()["success"] is False
+
+
+def test_payment_service_requires_keys_outside_development():
+    import os
+    import subprocess
+    import sys
+
+    env = os.environ.copy()
+    env.update({"APP_ENV": "production", "SECRET_KEY": "", "ZALOPAY_KEY1": "", "ZALOPAY_KEY2": ""})
+    result = subprocess.run(
+        [sys.executable, "-c", "import services.payment_service"],
+        cwd=os.getcwd(), env=env, capture_output=True, text=True,
+    )
+    assert result.returncode != 0
+    assert all(name in result.stderr for name in ("SECRET_KEY", "ZALOPAY_KEY1", "ZALOPAY_KEY2"))
+
+
+def test_payment_service_generates_development_keys_and_rejects_bad_callback_signature():
+    import os
+    import subprocess
+    import sys
+
+    env = os.environ.copy()
+    env.update({"APP_ENV": "development", "SECRET_KEY": "", "ZALOPAY_KEY1": "", "ZALOPAY_KEY2": ""})
+    result = subprocess.run(
+        [sys.executable, "-c", (
+            "from services.payment_service import SECRET_KEY, ZALOPAY_SANDBOX_CONFIG, "
+            "generate_checksum, verify_checksum; "
+            "assert SECRET_KEY and ZALOPAY_SANDBOX_CONFIG['key1'] and ZALOPAY_SANDBOX_CONFIG['key2']; "
+            "assert not verify_checksum('TRX-TEST', 10, 'wrong'); "
+            "print('keys-present')"
+        )],
+        cwd=os.getcwd(), env=env, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "keys-present"
+    assert "Thiếu khóa thanh toán" in result.stderr
+    assert re.search(r"\b[0-9a-f]{64}\b", result.stderr, re.IGNORECASE) is None
+
+
+def test_unused_admin_token_is_not_advertised_or_injected_for_tests():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    assert "ADMIN_TOKEN" not in (root / ".env.example").read_text(encoding="utf-8")
+    assert "ADMIN_TOKEN" not in (root / "tests" / "conftest.py").read_text(encoding="utf-8")
+
+
+def test_chat_rate_limit_returns_429_on_request_21_and_resets_after_window(monkeypatch):
+    import app as app_module
+
+    now = [100.0]
+    monkeypatch.setattr(app_module, "monotonic", lambda: now[0])
+    app_module._chat_requests.clear()
+    monkeypatch.setattr(app_module.agentic_ai, "chat_with_agent", lambda *args: {"answer": "ok"})
+    client = app_module.app.test_client()
+    ip = "198.51.100.71"
+
+    responses = [client.post("/api/ai/chat", json={"message": "xin chao"},
+                             environ_overrides={"REMOTE_ADDR": ip}) for _ in range(20)]
+    limited = client.post("/api/ai/chat", json={"message": "xin chao"},
+                          environ_overrides={"REMOTE_ADDR": ip})
+    assert all(response.status_code == 200 for response in responses)
+    assert limited.status_code == 429
+    assert limited.is_json and limited.get_json()["success"] is False
+
+    now[0] += 60
+    retried = client.post("/api/ai/chat", json={"message": "xin chao"},
+                          environ_overrides={"REMOTE_ADDR": ip})
+    assert retried.status_code == 200
+
+
+def test_chat_rate_limiter_removes_every_expired_ip(monkeypatch):
+    from collections import OrderedDict
+    import app as app_module
+
+    app_module._chat_requests.clear()
+    app_module._chat_requests.update(OrderedDict([
+        ("active-ip", (300.0, 1)),
+        ("expired-ip", (100.0, 1)),
+    ]))
+    monkeypatch.setattr(app_module, "monotonic", lambda: 200.0)
+
+    assert app_module._chat_rate_allowed("new-ip")
+    assert "expired-ip" not in app_module._chat_requests
+    assert app_module._chat_requests["active-ip"] == (300.0, 1)
+
+
+@pytest.mark.parametrize("value", [None, "0", "false", "True", ""])
+def test_debug_flag_is_disabled_unless_exactly_one(value):
+    from app import debug_enabled
+
+    assert debug_enabled(value) is False
+    assert debug_enabled("1") is True
