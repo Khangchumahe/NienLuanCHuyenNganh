@@ -137,16 +137,19 @@ function renderProductGrid(products) {
     card.className = 'product-card';
     
     // Tính phần trăm giảm giá nếu có
-    const hasDiscount = p.discount_price && p.discount_price < p.price;
-    const discountPercent = hasDiscount ? Math.round(((p.price - p.discount_price) / p.price) * 100) : 0;
-    const displayPrice = hasDiscount ? p.discount_price : p.price;
+    const price = safeNumber(p.price);
+    const discountPrice = safeNumber(p.discount_price);
+    const hasDiscount = Boolean(p.discount_price) && discountPrice < price;
+    const discountPercent = hasDiscount ? Math.round(((price - discountPrice) / price) * 100) : 0;
+    const displayPrice = hasDiscount ? discountPrice : price;
+    const totalStock = safeNumber(p.total_stock);
 
     card.innerHTML = `
       <div class="card-image-box">
         <img src="${escapeHtml(safeImageUrl(p.image_url))}" alt="${escapeHtml(p.name)}" loading="lazy">
         <div class="card-badges">
           ${hasDiscount ? `<span class="badge badge-discount">-${discountPercent}%</span>` : ''}
-          <span class="badge badge-stock">Kho: ${p.total_stock}</span>
+          <span class="badge badge-stock">Kho: ${totalStock}</span>
         </div>
       </div>
       <div class="card-body">
@@ -155,8 +158,8 @@ function renderProductGrid(products) {
         <div class="product-material"><i class="fa-solid fa-scroll" aria-hidden="true"></i> ${escapeHtml(p.material)}</div>
         
         <div class="price-row">
-          <span class="current-price">${displayPrice.toLocaleString('vi-VN')} đ</span>
-          ${hasDiscount ? `<span class="old-price">${p.price.toLocaleString('vi-VN')} đ</span>` : ''}
+          <span class="current-price">${safeNumber(displayPrice).toLocaleString('vi-VN')} đ</span>
+          ${hasDiscount ? `<span class="old-price">${safeNumber(price).toLocaleString('vi-VN')} đ</span>` : ''}
         </div>
 
         <div class="card-actions">
@@ -404,8 +407,8 @@ function renderCartItems(cartIsValid = true) {
   } else {
     let total = 0;
     currentCart.forEach((item, index) => {
-      const unitPrice = Number(item.price) || 0;
-      const quantity = Number(item.quantity) || 0;
+      const unitPrice = safeNumber(item.price);
+      const quantity = safeNumber(item.quantity);
       const itemSubtotal = unitPrice * quantity;
       total += itemSubtotal;
 
@@ -416,11 +419,11 @@ function renderCartItems(cartIsValid = true) {
         <div class="cart-item-info">
           <div class="cart-item-title">${escapeHtml(item.product_name)}</div>
           <div class="cart-item-variant">Màu: ${escapeHtml(item.color)} | Size: ${escapeHtml(item.size)} (${escapeHtml(item.sku)})</div>
-          <div class="cart-item-price">${unitPrice.toLocaleString('vi-VN')} đ x ${quantity} = ${itemSubtotal.toLocaleString('vi-VN')} đ</div>
-          ${item.unavailable ? `<div class="cart-stock-warning">Chỉ còn ${Number(item.stock_quantity) || 0} sản phẩm; vui lòng cập nhật số lượng hoặc bỏ mặt hàng.</div>` : ''}
+          <div class="cart-item-price">${safeNumber(unitPrice).toLocaleString('vi-VN')} đ x ${safeNumber(quantity)} = ${safeNumber(itemSubtotal).toLocaleString('vi-VN')} đ</div>
+          ${item.unavailable ? `<div class="cart-stock-warning">Chỉ còn ${safeNumber(item.stock_quantity)} sản phẩm; vui lòng cập nhật số lượng hoặc bỏ mặt hàng.</div>` : ''}
         </div>
         <div>
-          <button data-cart-index="${index}" aria-label="Bỏ ${escapeHtml(item.product_name)} khỏi giỏ" style="background: none; border: none; color: var(--danger); cursor: pointer; font-size: 16px;">
+          <button data-cart-index="${safeNumber(index)}" aria-label="Bỏ ${escapeHtml(item.product_name)} khỏi giỏ" style="background: none; border: none; color: var(--danger); cursor: pointer; font-size: 16px;">
             <i class="fa-solid fa-trash-can"></i>
           </button>
         </div>
@@ -877,7 +880,7 @@ async function submitOtpVerification() {
           <span>Hình thức thanh toán:</span> <strong>${escapeHtml(data.card_brand || 'ZaloPay')} (${escapeHtml(currentPaymentType)})</strong>
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-          <span>Số tiền thanh toán:</span> <strong style="color: #16a34a;">${currentPendingPayment.total_amount.toLocaleString('vi-VN')} VNĐ</strong>
+          <span>Số tiền thanh toán:</span> <strong style="color: #16a34a;">${safeNumber(currentPendingPayment.total_amount).toLocaleString('vi-VN')} VNĐ</strong>
         </div>
         <div style="display: flex; justify-content: space-between;">
           <span>Trạng thái:</span> <span class="badge" style="background: #dcfce7; color: #16a34a; font-weight: 700;">ĐÃ THANH TOÁN (PAID)</span>
@@ -1127,6 +1130,15 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function safeNumber(value) {
+  try {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  } catch (_) {
+    return 0;
+  }
 }
 
 function safeImageUrl(url) {
