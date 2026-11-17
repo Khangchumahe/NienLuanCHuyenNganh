@@ -301,11 +301,19 @@ def test_chat_limit_and_http_errors_use_consistent_json(monkeypatch):
     assert unsupported.status_code == 405
     assert unsupported.is_json and unsupported.get_json()["success"] is False
 
-    @app.get("/test/unexpected-error")
+    # Use a separate Flask app so the production app's route map stays frozen.
+    # Register its actual handler to keep this assertion tied to app behavior.
+    from flask import Flask
+    from app import handle_unexpected_error
+
+    error_app = Flask("unexpected_error_test")
+    error_app.register_error_handler(Exception, handle_unexpected_error)
+
+    @error_app.get("/test/unexpected-error")
     def unexpected_error_for_test():
         raise RuntimeError("private exception details")
 
-    failed = client.get("/test/unexpected-error")
+    failed = error_app.test_client().get("/test/unexpected-error")
     assert failed.status_code == 500
     assert failed.is_json
     assert "private exception details" not in failed.get_data(as_text=True)
