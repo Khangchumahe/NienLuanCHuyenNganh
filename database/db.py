@@ -33,10 +33,55 @@ def ensure_schema():
             conn.execute("PRAGMA busy_timeout = 30000")
             with open(SCHEMA_PATH, 'r', encoding='utf-8') as schema_file:
                 conn.executescript(schema_file.read())
+            _upgrade_users_role_constraint(conn)
             conn.commit()
         finally:
             conn.close()
         _SCHEMA_READY_PATHS.add(path)
+
+
+def _upgrade_users_role_constraint(conn):
+    """Safely allow STAFF in databases created with the earlier role CHECK."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
+    ).fetchone()
+    if not row or "'STAFF'" in (row[0] or ""):
+        return
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()
+        if row and "'STAFF'" not in (row[0] or ""):
+            conn.execute("""
+                CREATE TABLE users_role_upgrade (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    full_name TEXT NOT NULL,
+                    phone TEXT,
+                    role TEXT NOT NULL DEFAULT 'CUSTOMER'
+                        CHECK (role IN ('ADMIN', 'STAFF', 'CUSTOMER')),
+                    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                INSERT INTO users_role_upgrade
+                    (id, email, password_hash, full_name, phone, role, is_active, created_at)
+                SELECT id, email, password_hash, full_name, phone, role, is_active, created_at
+                FROM users
+            """)
+            conn.execute("DROP TABLE users")
+            conn.execute("ALTER TABLE users_role_upgrade RENAME TO users")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 def get_db_connection():
     ensure_schema()
@@ -556,10 +601,12 @@ def _check_password(password, stored_hash):
     except (ValueError, AttributeError, TypeError):
         return False
 
-def create_user(email, password, full_name, phone=None):
-    """Tạo tài khoản CUSTOMER; không cho người đăng ký tự chọn ADMIN."""
+def _create_user_with_role(email, password, full_name, phone=None, role='CUSTOMER'):
+    """Internal account creation shared by the public CUSTOMER flow and CLI seeder."""
     email = (email or '').strip().lower()
     full_name = (full_name or '').strip()
+    if role not in ('ADMIN', 'STAFF', 'CUSTOMER'):
+        return {'success': False, 'error': 'Vai trò tài khoản không hợp lệ'}
     if not email or '@' not in email or len(email) > 254:
         return {'success': False, 'error': 'Email không hợp lệ'}
     if len(password or '') < 8:
@@ -571,8 +618,8 @@ def create_user(email, password, full_name, phone=None):
     try:
         cur = conn.execute(
             "INSERT INTO users (email, password_hash, full_name, phone, role) "
-            "VALUES (?, ?, ?, ?, 'CUSTOMER')",
-            (email, _hash_password(password), full_name, phone)
+            "VALUES (?, ?, ?, ?, ?)",
+            (email, _hash_password(password), full_name, phone, role)
         )
         conn.commit()
         return {'success': True, 'user_id': cur.lastrowid}
@@ -581,6 +628,11 @@ def create_user(email, password, full_name, phone=None):
         return {'success': False, 'error': 'Email đã được đăng ký'}
     finally:
         conn.close()
+
+
+def create_user(email, password, full_name, phone=None):
+    """Public registration always creates CUSTOMER and cannot select a role."""
+    return _create_user_with_role(email, password, full_name, phone, role='CUSTOMER')
 
 def get_user_by_email(email):
     """Dành cho backend; kết quả có password_hash, không gửi thẳng về frontend."""
