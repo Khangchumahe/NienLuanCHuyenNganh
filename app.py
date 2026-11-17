@@ -161,6 +161,13 @@ def login_page():
 
 @app.route('/api/auth/register', methods=['POST'])
 def api_register():
+    address = request.remote_addr
+    retry_after = _register_attempt_retry_after(address)
+    if retry_after:
+        return jsonify(
+            success=False,
+            error='Bạn gửi yêu cầu đăng ký quá nhiều lần. Vui lòng thử lại sau.',
+        ), 429, {'Retry-After': str(retry_after)}
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(success=False, error='Cần gửi JSON hợp lệ'), 400
@@ -202,32 +209,64 @@ def _prune_login_failures(now):
 def _login_retry_after(address, email):
     now = _login_rate_now()
     keys = _login_rate_keys(address, email)
+    return _rate_retry_after(keys, _LOGIN_FAILURE_LIMIT, now)
+
+
+def _rate_retry_after(keys, limit, now=None):
+    now = _login_rate_now() if now is None else now
     with _login_failures_lock:
         _prune_login_failures(now)
         blocked_expiries = [
             _login_failures[key][0]
             for key in keys
             if key in _login_failures
-            and _login_failures[key][1] >= _LOGIN_FAILURE_LIMIT
+            and _login_failures[key][1] >= limit
         ]
         return max(0, math.ceil(max(blocked_expiries) - now)) if blocked_expiries else 0
 
 
 def _record_login_failure(address, email):
     now = _login_rate_now()
+    _record_rate_attempt(_login_rate_keys(address, email), _LOGIN_FAILURE_LIMIT,
+                         _LOGIN_WINDOW_SECONDS, now)
+
+
+def _record_rate_attempt(keys, limit, window_seconds, now):
     with _login_failures_lock:
         _prune_login_failures(now)
-        for key in _login_rate_keys(address, email):
+        for key in keys:
             expires, count = _login_failures.get(
-                key, (now + _LOGIN_WINDOW_SECONDS, 0)
+                key, (now + window_seconds, 0)
             )
             if key not in _login_failures:
                 while len(_login_failures) >= _LOGIN_RATE_MAX_ENTRIES:
                     _login_failures.popitem(last=False)
-                expires = now + _LOGIN_WINDOW_SECONDS
+                expires = now + window_seconds
                 count = 0
             _login_failures[key] = (expires, count + 1)
             _login_failures.move_to_end(key)
+
+
+def _register_rate_keys(address):
+    return (f'register-ip:{str(address or "unknown")[:128]}',)
+
+
+def _register_attempt_retry_after(address):
+    now = _login_rate_now()
+    key = _register_rate_keys(address)[0]
+    with _login_failures_lock:
+        _prune_login_failures(now)
+        expires, count = _login_failures.get(key, (now + 10 * 60, 0))
+        if count >= 5:
+            return max(1, math.ceil(expires - now))
+        if key not in _login_failures:
+            while len(_login_failures) >= _LOGIN_RATE_MAX_ENTRIES:
+                _login_failures.popitem(last=False)
+            expires = now + 10 * 60
+            count = 0
+        _login_failures[key] = (expires, count + 1)
+        _login_failures.move_to_end(key)
+        return 0
 
 
 def _clear_login_failures(address, email):
@@ -294,8 +333,12 @@ def api_products():
 @app.route('/api/products/<int:product_id>', methods=['GET'])
 def api_product_detail(product_id):
     product = get_product_by_id(product_id)
-    if not product or not product['is_published']:
+    if not product:
         return jsonify({'success': False, 'message': 'Không tìm thấy sản phẩm'}), 404
+    if not product['is_published']:
+        user = current_user()
+        if not user or user['role'] not in ('ADMIN', 'STAFF'):
+            return jsonify({'success': False, 'message': 'Không tìm thấy sản phẩm'}), 404
     return jsonify({'success': True, 'product': product})
 
 

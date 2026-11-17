@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import re
+from time import monotonic
 
 try:
     from google import genai
@@ -282,6 +283,8 @@ class AgenticRAGEngine:
         key = os.environ.get("GEMINI_API_KEY", "").strip()
         self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
         self.client = None
+        self._gemini_disabled_until = 0.0
+        self._gemini_circuit_warning_logged = False
         if genai and key and key != "your_gemini_api_key_here":
             try:
                 self.client = genai.Client(api_key=key, http_options={"timeout": 2200, "retry_options": {"attempts": 1}})
@@ -419,16 +422,25 @@ class AgenticRAGEngine:
                 "height_cm": height, "weight_kg": weight,
                 "gender": _detect_gender(user_query) or _detect_gender(effective_query) or "",
             })
-        if self.client:
+        circuit_open = self._gemini_circuit_is_open()
+        if self.client and not circuit_open:
             try:
                 answer = self._route(user_query, effective_query, history)
                 if answer is not None:
                     return answer
             except Exception as error:
                 code = getattr(error, "code", None)
-                logger.warning("Gemini routing failed (%s, status %s)", type(error).__name__, code)
-                if code in (401, 403, 404):
-                    self.client = None
+                if self._is_gemini_credential_or_quota_error(error, code):
+                    self._gemini_disabled_until = monotonic() + 10 * 60
+                    if not self._gemini_circuit_warning_logged:
+                        logger.warning(
+                            "Gemini authentication/permission/quota failure (%s, status %s); "
+                            "routing disabled for 10 minutes",
+                            type(error).__name__, code,
+                        )
+                        self._gemini_circuit_warning_logged = True
+                else:
+                    logger.warning("Gemini routing failed (%s, status %s)", type(error).__name__, code)
         engine = engine or RAGEngine()
         named_products = engine.named_products(effective_query)
         if len(named_products) == 1:
@@ -446,6 +458,28 @@ class AgenticRAGEngine:
         result = engine.generate_response(effective_query)
         result["rag_trace"].update(mode="local", query=user_query, intent="PRODUCT_SEARCH")
         return result
+
+    @staticmethod
+    def _is_gemini_credential_or_quota_error(error, code):
+        details = " ".join((str(error), str(getattr(error, "status", "")),
+                            str(getattr(error, "reason", "")))).casefold()
+        if code in (401, 403) or any(
+            marker in details
+            for marker in ("permission_denied", "unauthenticated", "invalid api key")
+        ):
+            return True
+        return code == 429 and any(
+            marker in details
+            for marker in ("quota", "resource_exhausted", "billing", "daily limit")
+        )
+
+    def _gemini_circuit_is_open(self):
+        now = monotonic()
+        if now < self._gemini_disabled_until:
+            return True
+        if self._gemini_disabled_until and self._gemini_circuit_warning_logged:
+            self._gemini_circuit_warning_logged = False
+        return False
 
     def _route(self, user_query, effective_query, history):
         functions = {**STORE_TOOLS, "ask_clarification": ask_clarification, "out_of_scope": out_of_scope}

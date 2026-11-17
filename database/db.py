@@ -102,8 +102,8 @@ def seed_sample_data():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Kiểm tra nếu đã có dữ liệu thì không seed lại
-    cursor.execute("SELECT COUNT(*) FROM categories")
+    # Bỏ qua seed khi catalog đã có ít nhất một sản phẩm.
+    cursor.execute("SELECT COUNT(*) FROM products")
     if cursor.fetchone()[0] > 0:
         conn.close()
         return
@@ -115,7 +115,14 @@ def seed_sample_data():
         ("Áo Khoác", "ao-khoac", "Áo khoác blazer, áo khoác gió thể thao nam nữ chống nước"),
         ("Đầm & Váy Nữ", "dam-vay-nu", "Đầm lụa, chân váy chữ A, thiết kế tôn dáng công sở và dạ tiệc")
     ]
-    cursor.executemany("INSERT INTO categories (name, slug, description) VALUES (?, ?, ?)", categories)
+    cursor.executemany(
+        "INSERT OR IGNORE INTO categories (name, slug, description) VALUES (?, ?, ?)",
+        categories,
+    )
+    category_ids = {
+        row["slug"]: row["id"]
+        for row in cursor.execute("SELECT id, slug FROM categories").fetchall()
+    }
     
     # 2. Seed Products
     products = [
@@ -217,6 +224,13 @@ def seed_sample_data():
         )
     ]
 
+    category_slug_by_seed_id = {
+        1: "ao-nam", 2: "quan-nam", 3: "ao-khoac", 4: "dam-vay-nu",
+    }
+    products = [
+        (category_ids[category_slug_by_seed_id[product[0]]], *product[1:])
+        for product in products
+    ]
     cursor.executemany("""
         INSERT INTO products 
         (category_id, name, slug, price, discount_price, material, style, size_guide, description, image_url)
