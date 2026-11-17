@@ -45,17 +45,15 @@ print(json.dumps({"status": response.status_code, "before": before, "after": aft
 
 def test_app_bootstraps_legacy_head_database_without_losing_existing_rows(tmp_path):
     legacy_db = tmp_path / "legacy-store.db"
-    with legacy_db.open("wb") as output:
-        result = subprocess.run(
-            ["git", "show", "HEAD:database/store.db"], cwd=ROOT,
-            stdout=output, stderr=subprocess.PIPE, check=False,
-        )
-    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    fixture = ROOT / "tests" / "fixtures" / "legacy_schema.sql"
+    with sqlite3.connect(legacy_db) as conn:
+        conn.executescript(fixture.read_text(encoding="utf-8"))
 
     with sqlite3.connect(legacy_db) as conn:
         tables = {row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         )}
+        assert "users" not in tables
         assert "customer_order_links" not in tables
         # Keep app startup focused on schema repair; otherwise the normal lazy
         # expiry of aged pending demo orders legitimately adds audit rows.
